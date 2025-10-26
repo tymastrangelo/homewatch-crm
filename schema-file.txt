@@ -1,0 +1,45 @@
+-- WARNING: This schema is for context only and is not meant to be run.
+-- Table order and constraints may not be valid for execution.
+
+CREATE TABLE public.checklist_items (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  checklist_id uuid,
+  category text NOT NULL,
+  item_text text NOT NULL,
+  status USER-DEFINED DEFAULT 'unchecked'::checklist_item_status,
+  notes text,
+  created_at timestamp with time zone DEFAULT now(),
+  updated_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT checklist_items_pkey PRIMARY KEY (id),
+  CONSTRAINT checklist_items_checklist_id_fkey FOREIGN KEY (checklist_id) REFERENCES public.checklists(id)
+);
+CREATE TABLE public.checklist_photos (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  checklist_item_id uuid,
+  storage_path text NOT NULL,
+  created_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT checklist_photos_pkey PRIMARY KEY (id),
+  CONSTRAINT checklist_photos_checklist_item_id_fkey FOREIGN KEY (checklist_item_id) REFERENCES public.checklist_items(id)
+);
+CREATE TABLE public.checklists (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  property_id uuid,
+  user_id uuid,
+  visit_date date DEFAULT CURRENT_DATE,
+  notes text,
+  created_at timestamp with time zone DEFAULT now(),
+  updated_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT checklists_pkey PRIMARY KEY (id),
+  CONSTRAINT checklists_property_id_fkey FOREIGN KEY (property_id) REFERENCES public.properties(id),
+  CONSTRAINT checklists_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id)
+);
+CREATE TABLE public.properties (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  name text NOT NULL,
+  address text,
+  created_at timestamp with time zone DEFAULT now(),
+  updated_at timestamp with time zone DEFAULT now(),
+  user_id uuid,
+  CONSTRAINT properties_pkey PRIMARY KEY (id),
+  CONSTRAINT properties_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id)
+);
