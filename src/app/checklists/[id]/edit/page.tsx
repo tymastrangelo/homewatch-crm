@@ -32,7 +32,7 @@ type ChecklistMeta = {
 }
 
 type PageProps = {
-  params: { id: string }
+  params: Promise<{ id: string }>
 }
 
 function parseMeta(notes: string | null): ChecklistMeta {
@@ -55,6 +55,7 @@ function toDateInput(value: string | null) {
 }
 
 export default async function EditChecklistPage({ params }: PageProps) {
+  const { id } = await params
   const supabase = await createSupabaseServerClient()
 
   const { data, error } = await supabase
@@ -88,7 +89,7 @@ export default async function EditChecklistPage({ params }: PageProps) {
         )
       )
     `)
-    .eq('id', params.id)
+  .eq('id', id)
     .maybeSingle<ChecklistWithRelations>()
 
   if (error) {
@@ -101,11 +102,11 @@ export default async function EditChecklistPage({ params }: PageProps) {
             <div className="rounded-2xl border border-amber-200 bg-amber-50 p-6 text-amber-800">
               <h1 className="text-xl font-semibold">Unable to edit this checklist</h1>
               <p className="mt-3 text-sm leading-relaxed">
-                Supabase row-level security blocked access to checklist <code className="rounded bg-amber-100 px-1">{params.id}</code>. Update your <code className="rounded bg-amber-100 px-1">SELECT</code> and <code className="rounded bg-amber-100 px-1">UPDATE</code> policies on
+                Supabase row-level security blocked access to checklist <code className="rounded bg-amber-100 px-1">{id}</code>. Update your <code className="rounded bg-amber-100 px-1">SELECT</code> and <code className="rounded bg-amber-100 px-1">UPDATE</code> policies on
                 the <code className="rounded bg-amber-100 px-1">checklists</code>, <code className="rounded bg-amber-100 px-1">checklist_items</code>, and <code className="rounded bg-amber-100 px-1">properties</code> tables so that the signed-in user can manage their own records.
               </p>
               <p className="mt-4 text-sm">
-                <Link href={`/checklists/${params.id}`} className="text-primary-600 hover:underline">Return to checklist</Link>
+                <Link href={`/checklists/${id}`} className="text-primary-600 hover:underline">Return to checklist</Link>
               </p>
             </div>
           </div>
@@ -191,7 +192,7 @@ export default async function EditChecklistPage({ params }: PageProps) {
     <main className="min-h-screen bg-gray-50">
       <div className="mx-auto max-w-5xl px-4 pt-4 sm:px-6">
         <div className="flex flex-col gap-2 text-sm text-gray-600 sm:flex-row sm:items-center sm:justify-between">
-          <Link href={`/checklists/${params.id}`} className="text-primary-600 hover:underline">Back to checklist</Link>
+          <Link href={`/checklists/${id}`} className="text-primary-600 hover:underline">Back to checklist</Link>
           <span className="text-xs sm:text-sm">Updates save to the same record immediately.</span>
         </div>
       </div>

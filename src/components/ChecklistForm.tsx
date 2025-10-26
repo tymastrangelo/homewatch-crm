@@ -1,4 +1,5 @@
 "use client"
+import Image from 'next/image'
 import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import {
@@ -911,7 +912,14 @@ export default function ChecklistForm({ defaultData }: { defaultData?: Partial<C
                     <div className="mt-2 grid grid-cols-3 gap-2">
                       {(item.photos || []).map((photo: ChecklistPhotoDraft) => (
                         <div key={photo.id} className="relative">
-                          <img src={photo.previewUrl} alt="preview" className="w-full h-20 md:h-24 object-cover rounded-md border" />
+                          <Image
+                            src={photo.previewUrl}
+                            alt="Checklist item preview"
+                            width={160}
+                            height={160}
+                            unoptimized
+                            className="w-full h-20 md:h-24 object-cover rounded-md border"
+                          />
                           <button onClick={() => removePhoto(item.id, photo)} className="absolute -top-1 -right-1 bg-red-600 text-white rounded-full w-6 h-6 text-xs">x</button>
                         </div>
                       ))}

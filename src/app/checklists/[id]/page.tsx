@@ -105,10 +105,11 @@ function parseMeta(notes: string | null): ChecklistMeta {
 }
 
 type PageProps = {
-  params: { id: string }
+  params: Promise<{ id: string }>
 }
 
 export default async function ChecklistDetailPage({ params }: PageProps) {
+  const { id } = await params
   const supabase = await createSupabaseServerClient()
 
   const { data, error } = await supabase
@@ -143,7 +144,7 @@ export default async function ChecklistDetailPage({ params }: PageProps) {
         )
       )
     `)
-    .eq('id', params.id)
+  .eq('id', id)
     .maybeSingle<ChecklistWithRelations>()
 
   if (error) {
@@ -156,7 +157,7 @@ export default async function ChecklistDetailPage({ params }: PageProps) {
             <div className="rounded-2xl border border-amber-200 bg-amber-50 p-6 text-amber-800">
               <h1 className="text-xl font-semibold">Unable to show this checklist</h1>
               <p className="mt-3 text-sm leading-relaxed">
-                Supabase row-level security blocked access to checklist <code className="rounded bg-amber-100 px-1">{params.id}</code>. Verify your <code className="rounded bg-amber-100 px-1">SELECT</code> policies on
+                Supabase row-level security blocked access to checklist <code className="rounded bg-amber-100 px-1">{id}</code>. Verify your <code className="rounded bg-amber-100 px-1">SELECT</code> policies on
                 the <code className="rounded bg-amber-100 px-1">checklists</code>, <code className="rounded bg-amber-100 px-1">checklist_items</code>, and <code className="rounded bg-amber-100 px-1">properties</code> tables so that the signed-in user can read their own records.
               </p>
               <p className="mt-4 text-sm">
