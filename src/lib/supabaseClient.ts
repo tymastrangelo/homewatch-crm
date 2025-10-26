@@ -1,4 +1,4 @@
-import { createClient } from '@supabase/supabase-js'
+import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import { createBrowserClient } from '@supabase/ssr'
 import type { Database } from './types'
 
@@ -17,17 +17,44 @@ export type ChecklistItemInsert = Tables['checklist_items']['Insert']
 export type ChecklistItemUpdate = Tables['checklist_items']['Update']
 export type ChecklistPhoto = Tables['checklist_photos']['Row']
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+let browserClient: SupabaseClient<Database> | null = null
+let serverClient: SupabaseClient<Database> | null = null
 
-if (!supabaseUrl || !supabaseAnonKey) {
-  throw new Error('Missing Supabase URL or Anon Key')
+function getSupabaseCredentials() {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+
+  if (!supabaseUrl || !supabaseAnonKey) {
+    throw new Error('Missing Supabase configuration. Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY environment variables.')
+  }
+
+  return { supabaseUrl, supabaseAnonKey }
 }
 
-export const supabase = typeof window === 'undefined'
-  ? createClient<Database>(supabaseUrl, supabaseAnonKey, {
-      auth: {
-        persistSession: false
-      }
-    })
-  : createBrowserClient<Database>(supabaseUrl, supabaseAnonKey)
+export function getSupabaseClient(): SupabaseClient<Database> {
+  if (typeof window === 'undefined') {
+    if (!serverClient) {
+      const { supabaseUrl, supabaseAnonKey } = getSupabaseCredentials()
+      serverClient = createClient<Database>(supabaseUrl, supabaseAnonKey, {
+        auth: {
+          persistSession: false
+        }
+      })
+    }
+    return serverClient
+  }
+
+  if (!browserClient) {
+    const { supabaseUrl, supabaseAnonKey } = getSupabaseCredentials()
+    browserClient = createBrowserClient<Database>(supabaseUrl, supabaseAnonKey)
+  }
+
+  return browserClient
+}
+
+export function resetSupabaseClientCache() {
+  browserClient = null
+  serverClient = null
+}
+
+export { getSupabaseCredentials }

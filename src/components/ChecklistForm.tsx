@@ -3,7 +3,7 @@ import Image from 'next/image'
 import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import {
-  supabase,
+  getSupabaseClient,
   type Client,
   type ClientInsert,
   type ClientUpdate,
@@ -145,6 +145,7 @@ const normalizeItems = (rawItems?: ChecklistItemInput[]): ChecklistItemForm[] =>
 }
 export default function ChecklistForm({ defaultData }: { defaultData?: Partial<ChecklistData> }) {
   const router = useRouter()
+  const supabase = useMemo(() => getSupabaseClient(), [])
   const [clientName, setClientName] = useState(defaultData?.clientName || '')
   const [address, setAddress] = useState(defaultData?.address || '')
   const [dateOfArrival, setDateOfArrival] = useState(defaultData?.dateOfArrival || '')
@@ -206,7 +207,7 @@ export default function ChecklistForm({ defaultData }: { defaultData?: Partial<C
     return () => {
       isMounted = false
     }
-  }, [])
+  }, [supabase])
 
   const propertyLookup = useMemo(() => {
     const map = new Map<string, Pick<Property, 'id' | 'address' | 'name'>>()

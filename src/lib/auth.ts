@@ -1,12 +1,8 @@
-import { createBrowserClient } from '@supabase/ssr'
 import { type AuthError, type AuthResponse } from '@supabase/supabase-js'
-
-const supabase = createBrowserClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-)
+import { getSupabaseClient } from './supabaseClient'
 
 export async function signInWithPassword(email: string, password: string): Promise<AuthResponse> {
+  const supabase = getSupabaseClient()
   const response = await supabase.auth.signInWithPassword({ email, password })
   if (response.error) {
     console.error('Sign-in error:', response.error.message)
@@ -15,6 +11,7 @@ export async function signInWithPassword(email: string, password: string): Promi
 }
 
 export async function signOut(): Promise<{ error: AuthError | null }> {
+  const supabase = getSupabaseClient()
   const { error } = await supabase.auth.signOut()
   if (error) {
     console.error('Sign-out error:', error.message)
@@ -23,6 +20,7 @@ export async function signOut(): Promise<{ error: AuthError | null }> {
 }
 
 export async function getSession() {
+  const supabase = getSupabaseClient()
   const { data, error } = await supabase.auth.getSession()
   if (error) {
     console.error('Get session error:', error.message)

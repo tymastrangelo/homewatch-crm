@@ -3,7 +3,7 @@
 import { useMemo, useState } from 'react'
 import Modal from '@/components/Modal'
 import {
-  supabase,
+  getSupabaseClient,
   type Client,
   type Property
 } from '@/lib/supabaseClient'
@@ -72,6 +72,7 @@ export default function ClientsManager({ initialClients, fetchError }: ClientsMa
   const [selectedClientId, setSelectedClientId] = useState<string | null>(null)
   const [clientDeleting, setClientDeleting] = useState<Record<string, boolean>>({})
   const [isViewModalOpen, setIsViewModalOpen] = useState(false)
+  const supabase = useMemo(() => getSupabaseClient(), [])
 
   const hasClients = clients.length > 0
 
