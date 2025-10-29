@@ -10,11 +10,6 @@ declare module 'pdfkit' {
   }
 }
 
-declare module 'pdfkit/js/pdfkit.standalone.js' {
-  import PDFDocument from 'pdfkit'
-  export default PDFDocument
-}
-
 declare module 'nodemailer' {
   import type { Buffer } from 'node:buffer'
 

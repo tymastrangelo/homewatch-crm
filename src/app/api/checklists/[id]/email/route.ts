@@ -69,6 +69,80 @@ const STATUS_LABELS: Record<ChecklistItemStatus, string> = {
 
 const CATEGORY_ORDER = ['exterior', 'interior', 'security', 'lanai_pool', 'final']
 
+let pdfkitFontPatchPromise: Promise<void> | null = null
+
+async function ensurePdfkitStandardFonts() {
+  if (pdfkitFontPatchPromise) {
+    return pdfkitFontPatchPromise
+  }
+
+  pdfkitFontPatchPromise = (async () => {
+  const fsModule = await import('node:fs')
+    const { createRequire } = await import('node:module')
+
+    const originalReadFileSync = fsModule.readFileSync.bind(fsModule)
+    const require = createRequire(import.meta.url)
+
+    const candidateDirs = new Set<string>()
+
+    try {
+      const resolvedPdfkitPath = require.resolve('pdfkit')
+  candidateDirs.add(path.join(path.dirname(resolvedPdfkitPath), 'data'))
+    } catch {
+      // noop
+    }
+
+    const bundledTargets = [
+  path.join(process.cwd(), '.next/server/chunks/data'),
+  path.join(process.cwd(), '.next/server/vendor-chunks/data'),
+  path.join(process.cwd(), '.next/standalone/chunks/data'),
+  path.join(process.cwd(), '.next/standalone/vendor-chunks/data'),
+  path.join(process.cwd(), 'node_modules/pdfkit/js/data')
+    ]
+
+    for (const dir of bundledTargets) {
+      if (fsModule.existsSync(dir)) {
+        candidateDirs.add(dir)
+      }
+    }
+
+    const availableDirs = Array.from(candidateDirs).filter(dir => fsModule.existsSync(dir))
+    if (availableDirs.length === 0) {
+      return
+    }
+
+    const patchedReadFileSync = ((filePath: Parameters<typeof originalReadFileSync>[0], options?: Parameters<typeof originalReadFileSync>[1]) => {
+      try {
+        return originalReadFileSync(filePath, options as never)
+      } catch (error) {
+        if (
+          error &&
+          typeof filePath === 'string' &&
+          (error as NodeJS.ErrnoException).code === 'ENOENT' &&
+          filePath.includes('pdfkit') &&
+          filePath.includes('/data/')
+        ) {
+          const fileName = path.basename(filePath)
+          for (const dir of availableDirs) {
+            const alternatePath = path.join(dir, fileName)
+            if (fsModule.existsSync(alternatePath)) {
+              return originalReadFileSync(alternatePath, options as never)
+            }
+          }
+        }
+        throw error
+      }
+    }) as typeof originalReadFileSync
+
+  ;(fsModule as unknown as { readFileSync: typeof originalReadFileSync }).readFileSync = patchedReadFileSync
+  })().catch(error => {
+    pdfkitFontPatchPromise = null
+    throw error
+  })
+
+  return pdfkitFontPatchPromise
+}
+
 function parseMeta(notes: string | null): ChecklistMeta {
   if (!notes) return {}
   try {
@@ -360,7 +434,8 @@ async function generateChecklistPdf({
   items: ChecklistItemWithMeta[]
   photos?: PhotoAttachment[]
 }): Promise<Buffer> {
-  const { default: PDFDocument } = await import('pdfkit/js/pdfkit.standalone.js')
+  await ensurePdfkitStandardFonts()
+  const { default: PDFDocument } = await import('pdfkit')
   let logoBuffer: Buffer | null = null
 
   try {
