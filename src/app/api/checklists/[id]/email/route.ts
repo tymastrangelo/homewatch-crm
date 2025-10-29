@@ -70,8 +70,66 @@ const STATUS_LABELS: Record<ChecklistItemStatus, string> = {
 const CATEGORY_ORDER = ['exterior', 'interior', 'security', 'lanai_pool', 'final']
 
 let pdfkitFontPatchPromise: Promise<void> | null = null
+const pdfkitFontIndex = new Map<string, string>()
+let pdfkitFontIndexBuilt = false
 
 type FsWithPdfkitPatch = typeof import('fs') & { __pdfkitFontPatched?: boolean }
+
+function indexPdfkitDataFiles(fsCjs: FsWithPdfkitPatch, baseDirs: string[], maxDepth = 4) {
+  if (pdfkitFontIndexBuilt) {
+    return
+  }
+
+  const seen = new Set<string>()
+  const stack: Array<{ dir: string; depth: number }> = []
+
+  for (const dir of baseDirs) {
+    if (dir && !seen.has(dir) && fsCjs.existsSync(dir)) {
+      stack.push({ dir, depth: 0 })
+      seen.add(dir)
+    }
+  }
+
+  while (stack.length > 0) {
+    const { dir, depth } = stack.pop() as { dir: string; depth: number }
+    if (depth > maxDepth) {
+      continue
+    }
+
+    let entries: import('fs').Dirent[] = []
+    try {
+      entries = fsCjs.readdirSync(dir, { withFileTypes: true })
+    } catch {
+      continue
+    }
+
+    for (const entry of entries) {
+      const resolvedPath = path.join(dir, entry.name)
+      if (entry.isDirectory()) {
+        if (!seen.has(resolvedPath)) {
+          stack.push({ dir: resolvedPath, depth: depth + 1 })
+          seen.add(resolvedPath)
+        }
+        continue
+      }
+
+      if (entry.isFile() && entry.name.endsWith('.afm')) {
+        if (!pdfkitFontIndex.has(entry.name)) {
+          pdfkitFontIndex.set(entry.name, resolvedPath)
+        }
+        continue
+      }
+
+      if (entry.isFile() && entry.name.endsWith('.ttf')) {
+        if (!pdfkitFontIndex.has(entry.name)) {
+          pdfkitFontIndex.set(entry.name, resolvedPath)
+        }
+      }
+    }
+  }
+
+  pdfkitFontIndexBuilt = true
+}
 
 async function ensurePdfkitStandardFonts() {
   if (pdfkitFontPatchPromise) {
@@ -194,6 +252,26 @@ async function ensurePdfkitStandardFonts() {
             if (fsCjs.existsSync(alternatePath)) {
               return callOriginal(alternatePath as ReadFileSyncPath, options as ReadFileSyncOptions)
             }
+          }
+
+          if (!pdfkitFontIndexBuilt) {
+            const candidateBaseDirs = [
+              path.join(process.cwd(), '.next'),
+              path.join(process.cwd(), '.next/server'),
+              path.join(process.cwd(), '.next/server/chunks'),
+              path.join(process.cwd(), '.next/server/app'),
+              path.join(process.cwd(), '.next/standalone'),
+              path.join(process.cwd(), '.next/standalone/chunks'),
+              path.join(process.cwd(), '.next/standalone/app'),
+              path.join(process.cwd(), 'node_modules/pdfkit'),
+              path.join(process.cwd(), 'node_modules')
+            ]
+            indexPdfkitDataFiles(fsCjs, candidateBaseDirs)
+          }
+
+          const indexedPath = pdfkitFontIndex.get(fileName)
+          if (indexedPath && fsCjs.existsSync(indexedPath)) {
+            return callOriginal(indexedPath as ReadFileSyncPath, options as ReadFileSyncOptions)
           }
         }
         throw error
