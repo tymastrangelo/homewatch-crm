@@ -7,7 +7,8 @@ import { usePathname } from 'next/navigation'
 const links = [
   { name: 'Dashboard', href: '/dashboard' },
   { name: 'Checklist', href: '/checklist' },
-  { name: 'Clients', href: '/clients' }
+  { name: 'Clients', href: '/clients' },
+  { name: 'Inspectors', href: '/inspectors' }
 ]
 
 interface SidebarProps {

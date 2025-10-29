@@ -26,9 +26,22 @@ type ChecklistMeta = {
   clientName?: string
   address?: string
   inspector?: string
+  inspectorId?: string | null
+  inspectorEmail?: string | null
+  inspectorPhone?: string | null
   phone?: string
   email?: string
   comments?: string | null
+  garageTemp?: string | null
+  mainFloorTemp?: string | null
+  secondFloorTemp?: string | null
+  thirdFloorTemp?: string | null
+  temperatures?: {
+    garage?: string | null
+    mainFloor?: string | null
+    secondFloor?: string | null
+    thirdFloor?: string | null
+  }
 }
 
 type PageProps = {
@@ -181,9 +194,16 @@ export default async function EditChecklistPage({ params }: PageProps) {
     clientName: meta.clientName ?? propertyClient?.name ?? property?.name ?? '',
     address: meta.address ?? property?.address ?? '',
     inspector: meta.inspector ?? '',
+    inspectorId: meta.inspectorId ?? null,
+    inspectorEmail: meta.inspectorEmail ?? '',
+    inspectorPhone: meta.inspectorPhone ?? '',
     dateOfArrival: toDateInput(checklist.visit_date ?? checklist.created_at),
     phone: meta.phone ?? propertyClient?.phone ?? '',
     email: meta.email ?? propertyClient?.email ?? '',
+    garageTemp: meta.temperatures?.garage ?? meta.garageTemp ?? '',
+    mainFloorTemp: meta.temperatures?.mainFloor ?? meta.mainFloorTemp ?? '',
+    secondFloorTemp: meta.temperatures?.secondFloor ?? meta.secondFloorTemp ?? '',
+    thirdFloorTemp: meta.temperatures?.thirdFloor ?? meta.thirdFloorTemp ?? '',
     comments: meta.comments ?? '',
     items: defaultItems
   }

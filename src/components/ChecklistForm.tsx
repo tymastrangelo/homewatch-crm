@@ -13,7 +13,10 @@ import {
   type Checklist,
   type ChecklistInsert,
   type ChecklistUpdate,
-  type ChecklistItemInsert
+  type ChecklistItemInsert,
+  type Inspector,
+  type InspectorInsert,
+  type InspectorUpdate
 } from '@/lib/supabaseClient'
 
 type ChecklistPhotoDraft = {
@@ -50,13 +53,24 @@ type ChecklistData = {
   address: string
   dateOfArrival: string
   inspector: string
+  inspectorId?: string | null
+  inspectorEmail?: string | null
+  inspectorPhone?: string | null
   phone: string
   email: string
+  garageTemp?: string | null
+  mainFloorTemp?: string | null
+  secondFloorTemp?: string | null
+  thirdFloorTemp?: string | null
   items?: ChecklistItemInput[]
   comments?: string
   checklistId?: string
   propertyId?: string | null
 }
+
+const COMPANY_PHONE = '239.572.2025'
+const COMPANY_PRIMARY_EMAIL = 'info@239homeservices.com'
+const COMPANY_SECONDARY_EMAIL = 'info@239homeservices.com'
 
 const initialItems: ChecklistItemForm[] = [
   { id: 'forced_entry', category: 'exterior', label: 'Visual check for evidence of forced entry, vandalism, theft or damage', status: 'unchecked', photos: [], persistedId: null },
@@ -71,10 +85,11 @@ const initialItems: ChecklistItemForm[] = [
   { id: 'hot_water_heater', category: 'interior', label: 'Visual check of hot water heater', status: 'unchecked', photos: [], persistedId: null },
   { id: 'hvac', category: 'interior', label: 'Visual check of HVAC', status: 'unchecked', photos: [], persistedId: null },
   { id: 'thermostat', category: 'interior', label: 'Check that thermostat is set at correct temperature', status: 'unchecked', photos: [], persistedId: null },
-  { id: 'temps', category: 'interior', label: 'Document interior temperature levels (Garage/Main/2nd/3rd)', status: 'unchecked', photos: [], persistedId: null },
+  { id: 'temps', category: 'interior', label: 'Document interior temperature levels (Garage/Storage, Main Floor, 2nd Zone, 3rd Floor)', status: 'unchecked', photos: [], persistedId: null },
   { id: 'secure_windows', category: 'security', label: 'Check that all windows and entryways are secure', status: 'unchecked', photos: [], persistedId: null },
   { id: 'security_system', category: 'security', label: 'Check security system is set and working properly', status: 'unchecked', photos: [], persistedId: null },
   { id: 'lighting', category: 'interior', label: 'Check interior and exterior lighting', status: 'unchecked', photos: [], persistedId: null },
+  { id: 'lights_operation', category: 'interior', label: 'Operation of all lights - interior and exterior', status: 'unchecked', photos: [], persistedId: null },
   { id: 'water_damage', category: 'interior', label: 'Visual inspection of walls, ceilings, windows, tubs/showers for evidence of water damage, leakage, mold', status: 'unchecked', photos: [], persistedId: null },
   { id: 'water_lines', category: 'interior', label: 'Water flex lines and drains – Run sinks and toilets', status: 'unchecked', photos: [], persistedId: null },
   { id: 'garbage_disposal', category: 'interior', label: 'Garbage disposal(s)', status: 'unchecked', photos: [], persistedId: null },
@@ -83,8 +98,13 @@ const initialItems: ChecklistItemForm[] = [
   { id: 'freezers', category: 'interior', label: 'Check that freezers, refrigerators and wine coolers are working', status: 'unchecked', photos: [], persistedId: null },
   { id: 'icemaker', category: 'interior', label: 'Ensure icemakers are in "off" position', status: 'unchecked', photos: [], persistedId: null },
   { id: 'clocks', category: 'interior', label: 'Check clocks settings - reset if needed', status: 'unchecked', photos: [], persistedId: null },
-  { id: 'lanai_pool', category: 'exterior', label: 'Lanai/Pool inspection (screens, water level/condition, equipment)', status: 'unchecked', photos: [], persistedId: null },
-  { id: 'final_tasks', category: 'final', label: 'Final tasks upon departure (turn off heaters, water, lights, enable security, lock doors/windows)', status: 'unchecked', photos: [], persistedId: null }
+  { id: 'lanai_screens', category: 'lanai_pool', label: 'Lanai/Pool - Screen door(s), screens, and cage structure', status: 'unchecked', photos: [], persistedId: null },
+  { id: 'lanai_water', category: 'lanai_pool', label: 'Lanai/Pool - Water level and condition', status: 'unchecked', photos: [], persistedId: null },
+  { id: 'lanai_equipment', category: 'lanai_pool', label: 'Lanai/Pool - Equipment', status: 'unchecked', photos: [], persistedId: null },
+  { id: 'final_hot_water', category: 'final', label: 'Turn off hot water heater', status: 'unchecked', photos: [], persistedId: null },
+  { id: 'final_water_supply', category: 'final', label: 'Turn off water supply', status: 'unchecked', photos: [], persistedId: null },
+  { id: 'final_lights', category: 'final', label: 'Turn off all lights', status: 'unchecked', photos: [], persistedId: null },
+  { id: 'final_security', category: 'final', label: 'Enable security system (if applicable) and lock all doors and windows', status: 'unchecked', photos: [], persistedId: null }
 ]
 
 const generateLocalId = () => {
@@ -112,7 +132,7 @@ const generateLocalId = () => {
 
 const normalizeItems = (rawItems?: ChecklistItemInput[]): ChecklistItemForm[] => {
   const source: ChecklistItemInput[] = rawItems && rawItems.length > 0 ? rawItems : initialItems
-  return source.map((item: ChecklistItemInput) => {
+  const normalized = source.map((item: ChecklistItemInput) => {
     const normalizedPhotos: ChecklistPhotoDraft[] = (item.photos ?? []).map((photo: ChecklistPhotoDraft | string) => {
       if (typeof photo === 'string') {
         return {
@@ -142,6 +162,23 @@ const normalizeItems = (rawItems?: ChecklistItemInput[]): ChecklistItemForm[] =>
       persistedId: item.persistedId ?? null
     }
   })
+
+  const presentLabels = new Set(normalized.map(item => item.label.trim().toLowerCase()))
+
+  initialItems.forEach(templateItem => {
+    if (!presentLabels.has(templateItem.label.trim().toLowerCase())) {
+      normalized.push({
+        ...templateItem,
+        id: templateItem.id,
+        notes: '',
+        photos: [],
+        status: 'unchecked',
+        persistedId: null
+      })
+    }
+  })
+
+  return normalized
 }
 export default function ChecklistForm({ defaultData }: { defaultData?: Partial<ChecklistData> }) {
   const router = useRouter()
@@ -150,8 +187,19 @@ export default function ChecklistForm({ defaultData }: { defaultData?: Partial<C
   const [address, setAddress] = useState(defaultData?.address || '')
   const [dateOfArrival, setDateOfArrival] = useState(defaultData?.dateOfArrival || '')
   const [inspector, setInspector] = useState(defaultData?.inspector || '')
-  const phone = defaultData?.phone || '239.572.2025'
-  const email = defaultData?.email || '239HomeServices@gmail.com'
+  const [selectedInspectorId, setSelectedInspectorId] = useState<string | null>(defaultData?.inspectorId ?? null)
+  const [inspectorEmail, setInspectorEmail] = useState(defaultData?.inspectorEmail || '')
+  const [inspectorPhone, setInspectorPhone] = useState(defaultData?.inspectorPhone || '')
+  const [inspectors, setInspectors] = useState<Inspector[]>([])
+  const [isLoadingInspectors, setIsLoadingInspectors] = useState<boolean>(true)
+  const [isAddingNewInspector, setIsAddingNewInspector] = useState<boolean>(() => !defaultData?.inspectorId)
+  const defaultInspectorName = defaultData?.inspector ?? ''
+  const [phone, setPhone] = useState(defaultData?.phone ?? '')
+  const [email, setEmail] = useState(defaultData?.email ?? '')
+  const [garageTemp, setGarageTemp] = useState(defaultData?.garageTemp || '')
+  const [mainFloorTemp, setMainFloorTemp] = useState(defaultData?.mainFloorTemp || '')
+  const [secondFloorTemp, setSecondFloorTemp] = useState(defaultData?.secondFloorTemp || '')
+  const [thirdFloorTemp, setThirdFloorTemp] = useState(defaultData?.thirdFloorTemp || '')
   const [items, setItems] = useState<ChecklistItemForm[]>(() => normalizeItems(defaultData?.items))
   const [comments, setComments] = useState(defaultData?.comments || '')
   const [selectedClientId, setSelectedClientId] = useState<string | null>(defaultData?.clientId ?? null)
@@ -208,6 +256,87 @@ export default function ChecklistForm({ defaultData }: { defaultData?: Partial<C
       isMounted = false
     }
   }, [supabase])
+
+  useEffect(() => {
+    let isMounted = true
+
+    const loadInspectors = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('inspectors')
+          .select('id, user_id, name, email, phone, created_at, updated_at')
+          .order('name', { ascending: true })
+
+        if (!isMounted) return
+
+        if (error) {
+          console.error('Failed to load inspectors', error)
+          setInspectors([])
+          if (!selectedInspectorId) {
+            setIsAddingNewInspector(true)
+          }
+        } else {
+          const records = ((data ?? []) as unknown) as Inspector[]
+          setInspectors(records)
+
+          const trimmedDefaultName = defaultInspectorName.trim().toLowerCase()
+
+          if (records.length === 0) {
+            setIsAddingNewInspector(true)
+          } else if (selectedInspectorId) {
+            const match = records.find(entry => entry.id === selectedInspectorId)
+            if (match) {
+              setInspector(match.name ?? '')
+              setInspectorEmail(match.email ?? '')
+              setInspectorPhone(match.phone ?? '')
+              setIsAddingNewInspector(false)
+            } else if (trimmedDefaultName) {
+              const fallback = records.find(entry => (entry.name ?? '').trim().toLowerCase() === trimmedDefaultName)
+              if (fallback) {
+                setSelectedInspectorId(fallback.id)
+                setInspector(fallback.name ?? '')
+                setInspectorEmail(fallback.email ?? '')
+                setInspectorPhone(fallback.phone ?? '')
+                setIsAddingNewInspector(false)
+              } else {
+                setIsAddingNewInspector(true)
+              }
+            }
+          } else if (trimmedDefaultName) {
+            const fallback = records.find(entry => (entry.name ?? '').trim().toLowerCase() === trimmedDefaultName)
+            if (fallback) {
+              setSelectedInspectorId(fallback.id)
+              setInspector(fallback.name ?? '')
+              setInspectorEmail(fallback.email ?? '')
+              setInspectorPhone(fallback.phone ?? '')
+              setIsAddingNewInspector(false)
+            } else {
+              setIsAddingNewInspector(true)
+            }
+          } else {
+            setIsAddingNewInspector(true)
+          }
+        }
+      } catch (error) {
+        if (!isMounted) return
+        console.error('Unexpected error loading inspectors', error)
+        setInspectors([])
+        if (!selectedInspectorId) {
+          setIsAddingNewInspector(true)
+        }
+      } finally {
+        if (isMounted) {
+          setIsLoadingInspectors(false)
+        }
+      }
+    }
+
+    loadInspectors()
+
+    return () => {
+      isMounted = false
+    }
+  }, [supabase, defaultInspectorName, selectedInspectorId])
 
   const propertyLookup = useMemo(() => {
     const map = new Map<string, Pick<Property, 'id' | 'address' | 'name'>>()
@@ -284,6 +413,8 @@ export default function ChecklistForm({ defaultData }: { defaultData?: Partial<C
       setClientName('')
       setSelectedPropertyId(null)
       setAddress('')
+      setPhone('')
+      setEmail('')
       setIsAddingNewClient(true)
       setIsAddingNewProperty(true)
       return
@@ -298,6 +429,8 @@ export default function ChecklistForm({ defaultData }: { defaultData?: Partial<C
     }
 
     setClientName(client.name ?? '')
+    setPhone(client.phone ?? '')
+    setEmail(client.email ?? '')
 
     const properties = client.properties ?? []
     if (selectedPropertyId && properties.some(property => property.id === selectedPropertyId)) {
@@ -337,6 +470,35 @@ export default function ChecklistForm({ defaultData }: { defaultData?: Partial<C
     }
   }
 
+  function handleInspectorSelection(value: string) {
+    if (value === '__new__') {
+      setSelectedInspectorId(null)
+      setIsAddingNewInspector(true)
+      setInspector('')
+      setInspectorEmail('')
+      setInspectorPhone('')
+      return
+    }
+
+    if (!value) {
+      setSelectedInspectorId(null)
+      setIsAddingNewInspector(true)
+      setInspector('')
+      setInspectorEmail('')
+      setInspectorPhone('')
+      return
+    }
+
+    setSelectedInspectorId(value)
+    setIsAddingNewInspector(false)
+    const record = inspectors.find(entry => entry.id === value)
+    if (record) {
+      setInspector(record.name ?? '')
+      setInspectorEmail(record.email ?? '')
+      setInspectorPhone(record.phone ?? '')
+    }
+  }
+
   const [photosMarkedForDeletion, setPhotosMarkedForDeletion] = useState<Array<{ id: string; storagePath?: string | null }>>([])
 
   function removePhoto(itemId: string, photo: ChecklistPhotoDraft) {
@@ -370,7 +532,15 @@ export default function ChecklistForm({ defaultData }: { defaultData?: Partial<C
   const [submitError, setSubmitError] = useState<string | null>(null)
 
   async function handleSubmit() {
-    if (!clientName || !address || !dateOfArrival || !inspector) {
+    const trimmedName = clientName.trim()
+    const trimmedAddress = address.trim()
+    const trimmedInspector = inspector.trim()
+  const trimmedInspectorEmail = inspectorEmail.trim()
+  const trimmedInspectorPhone = inspectorPhone.trim()
+    const trimmedPhone = phone.trim()
+    const trimmedEmail = email.trim()
+
+    if (!trimmedName || !trimmedAddress || !dateOfArrival || !trimmedInspector) {
       setSubmitError('Please fill in all required fields')
       return
     }
@@ -399,16 +569,101 @@ export default function ChecklistForm({ defaultData }: { defaultData?: Partial<C
         throw new Error('You must be signed in to submit a checklist.')
       }
 
-      const trimmedName = clientName.trim()
-      const trimmedAddress = address.trim()
-      const trimmedPhone = phone.trim()
-      const trimmedEmail = email.trim()
-
       if (!trimmedName) {
         throw new Error('Client name is required for this checklist.')
       }
       if (!trimmedAddress) {
         throw new Error('Please provide an address for this checklist.')
+      }
+
+      let effectiveInspectorId: string | null = selectedInspectorId
+      if (trimmedInspector) {
+        const normalizedName = trimmedInspector.toLowerCase()
+
+        if (!effectiveInspectorId) {
+          const existingInspector = inspectors.find(entry => (entry.name ?? '').trim().toLowerCase() === normalizedName)
+          if (existingInspector) {
+            effectiveInspectorId = existingInspector.id
+            setSelectedInspectorId(existingInspector.id)
+            setIsAddingNewInspector(false)
+            setInspector(existingInspector.name ?? trimmedInspector)
+            setInspectorEmail(existingInspector.email ?? '')
+            setInspectorPhone(existingInspector.phone ?? '')
+          }
+        }
+
+        if (effectiveInspectorId) {
+          const currentRecord = inspectors.find(entry => entry.id === effectiveInspectorId)
+          const currentName = (currentRecord?.name ?? '').trim()
+          const currentEmail = (currentRecord?.email ?? '').trim()
+          const currentPhone = (currentRecord?.phone ?? '').trim()
+          const nextEmail = trimmedInspectorEmail
+          const nextPhone = trimmedInspectorPhone
+
+          const needsUpdate =
+            currentName !== trimmedInspector ||
+            currentEmail !== nextEmail ||
+            currentPhone !== nextPhone
+
+          if (needsUpdate) {
+            const inspectorUpdatePayload: InspectorUpdate = {
+              name: trimmedInspector,
+              email: nextEmail ? nextEmail : null,
+              phone: nextPhone ? nextPhone : null,
+              updated_at: new Date().toISOString()
+            }
+
+            const { data: updatedInspector, error: inspectorUpdateError } = await supabase
+              .from('inspectors')
+              .update(inspectorUpdatePayload)
+              .eq('id', effectiveInspectorId)
+              .eq('user_id', userId)
+              .select()
+              .single<Inspector>()
+
+            if (inspectorUpdateError) throw inspectorUpdateError
+
+            if (updatedInspector) {
+              setInspectors(prev => {
+                const next = prev.map(entry => entry.id === updatedInspector.id ? updatedInspector : entry)
+                return next.sort((a, b) => (a.name ?? '').localeCompare(b.name ?? ''))
+              })
+              setInspector(updatedInspector.name ?? trimmedInspector)
+              setInspectorEmail(updatedInspector.email ?? '')
+              setInspectorPhone(updatedInspector.phone ?? '')
+            }
+          }
+        } else {
+          const inspectorPayload: InspectorInsert = {
+            user_id: userId,
+            name: trimmedInspector,
+            email: trimmedInspectorEmail || null,
+            phone: trimmedInspectorPhone || null
+          }
+
+          const { data: insertedInspector, error: inspectorInsertError } = await supabase
+            .from('inspectors')
+            .insert([inspectorPayload])
+            .select()
+            .single<Inspector>()
+
+          if (inspectorInsertError) {
+            if (typeof inspectorInsertError.message === 'string' && inspectorInsertError.message.toLowerCase().includes('inspectors')) {
+              throw new Error('Unable to save inspector. Ensure the `inspectors` table exists and the migration SQL has been executed.')
+            }
+            throw inspectorInsertError
+          }
+
+          if (insertedInspector) {
+            effectiveInspectorId = insertedInspector.id
+            setInspectors(prev => [...prev, insertedInspector].sort((a, b) => (a.name ?? '').localeCompare(b.name ?? '')))
+            setSelectedInspectorId(insertedInspector.id)
+            setIsAddingNewInspector(false)
+            setInspector(insertedInspector.name ?? trimmedInspector)
+            setInspectorEmail(insertedInspector.email ?? trimmedInspectorEmail)
+            setInspectorPhone(insertedInspector.phone ?? trimmedInspectorPhone)
+          }
+        }
       }
 
       let effectiveClientId = selectedClientId
@@ -476,9 +731,11 @@ export default function ChecklistForm({ defaultData }: { defaultData?: Partial<C
         throw new Error('Failed to resolve the client record.')
       }
 
-      setClientName(resolvedClient.name)
-      setSelectedClientId(resolvedClient.id)
-  setIsAddingNewClient(false)
+    setClientName(resolvedClient.name)
+    setSelectedClientId(resolvedClient.id)
+  setPhone(resolvedClient.phone ?? '')
+  setEmail(resolvedClient.email ?? '')
+    setIsAddingNewClient(false)
 
       let effectivePropertyId = selectedPropertyId
       let resolvedProperty: Property | null = null
@@ -561,9 +818,9 @@ export default function ChecklistForm({ defaultData }: { defaultData?: Partial<C
         console.debug('Created new property record', { id: insertedProperty.id })
       }
 
-      setSelectedPropertyId(resolvedProperty?.id ?? null)
-      setAddress(resolvedProperty?.address ?? trimmedAddress)
-  setIsAddingNewProperty(false)
+    setSelectedPropertyId(resolvedProperty?.id ?? null)
+    setAddress(resolvedProperty?.address ?? trimmedAddress)
+    setIsAddingNewProperty(false)
 
       // 2. Create or update the checklist entry
       const itemSummary = items
@@ -577,9 +834,22 @@ export default function ChecklistForm({ defaultData }: { defaultData?: Partial<C
         propertyId: resolvedPropertyId,
         clientName: trimmedName,
         address: trimmedAddress,
-        inspector: inspector.trim(),
-        phone: phone.trim(),
-        email: email.trim(),
+        inspector: trimmedInspector,
+        inspectorId: effectiveInspectorId ?? null,
+          inspectorEmail: trimmedInspectorEmail || null,
+          inspectorPhone: trimmedInspectorPhone || null,
+        phone: trimmedPhone || null,
+        email: trimmedEmail || null,
+        garageTemp: garageTemp.trim() || null,
+        mainFloorTemp: mainFloorTemp.trim() || null,
+        secondFloorTemp: secondFloorTemp.trim() || null,
+        thirdFloorTemp: thirdFloorTemp.trim() || null,
+        temperatures: {
+          garage: garageTemp.trim() || null,
+          mainFloor: mainFloorTemp.trim() || null,
+          secondFloor: secondFloorTemp.trim() || null,
+          thirdFloor: thirdFloorTemp.trim() || null
+        },
         comments: comments?.trim() || null,
         itemSummary
       })
@@ -628,7 +898,7 @@ export default function ChecklistForm({ defaultData }: { defaultData?: Partial<C
       }
 
       // 3. Persist individual checklist items
-      const itemIdMap = new Map<string, string>()
+  const itemIdMap = new Map<string, string>()
   const checklistItemsPayload: ChecklistItemInsert[] = items.map((item: ChecklistItemForm) => {
         const resolvedId = item.persistedId ?? generateLocalId()
         itemIdMap.set(item.id, resolvedId)
@@ -781,7 +1051,7 @@ export default function ChecklistForm({ defaultData }: { defaultData?: Partial<C
       <div className="max-w-5xl mx-auto space-y-6">
         <header className="bg-white p-4 rounded-2xl border border-gray-200 shadow-sm">
           <h1 className="text-2xl md:text-3xl font-bold">Basic Home Watch Checklist</h1>
-          <p className="text-sm text-gray-600 mt-1">PROPERTY INSPECTIONS &amp; SERVICES — Phone: {phone} — Email: {email}</p>
+          <p className="text-sm text-gray-600 mt-1">PROPERTY INSPECTIONS &amp; SERVICES — Phone: {COMPANY_PHONE} — Email: {COMPANY_PRIMARY_EMAIL}</p>
         </header>
 
         <section className="bg-white p-4 md:p-6 rounded-2xl border border-gray-200 shadow-sm grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -854,7 +1124,80 @@ export default function ChecklistForm({ defaultData }: { defaultData?: Partial<C
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700">Inspector</label>
-            <input className="mt-1 w-full border border-gray-300 rounded-lg p-2 text-sm" value={inspector} onChange={e => setInspector(e.target.value)} />
+            <div className="mt-1 space-y-2">
+              <select
+                className="w-full border border-gray-300 rounded-lg p-2 text-sm"
+                value={isAddingNewInspector ? '__new__' : (selectedInspectorId ?? '')}
+                onChange={e => handleInspectorSelection(e.target.value)}
+                disabled={isLoadingInspectors && inspectors.length === 0}
+              >
+                <option value="">
+                  {isLoadingInspectors
+                    ? 'Loading inspectors...'
+                    : inspectors.length > 0
+                      ? 'Select an inspector'
+                      : 'Select an inspector (or add new)'}
+                </option>
+                {inspectors.map(entry => (
+                  <option key={entry.id} value={entry.id}>
+                    {entry.name}
+                  </option>
+                ))}
+                <option value="__new__">+ Add new inspector</option>
+              </select>
+              {(isAddingNewInspector || inspectors.length === 0) && (
+                <input
+                  className="w-full border border-gray-300 rounded-lg p-2 text-sm"
+                  placeholder="Inspector name"
+                  value={inspector}
+                  onChange={e => setInspector(e.target.value)}
+                />
+              )}
+              <input
+                className="w-full border border-gray-300 rounded-lg p-2 text-sm"
+                type="email"
+                placeholder="Inspector email"
+                value={inspectorEmail}
+                onChange={e => setInspectorEmail(e.target.value)}
+              />
+              <input
+                className="w-full border border-gray-300 rounded-lg p-2 text-sm"
+                placeholder="Inspector phone"
+                value={inspectorPhone}
+                onChange={e => setInspectorPhone(e.target.value)}
+              />
+            </div>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700">Client phone</label>
+            <input className="mt-1 w-full border border-gray-300 rounded-lg p-2 text-sm" value={phone} onChange={e => setPhone(e.target.value)} placeholder="Client phone" />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700">Client email</label>
+            <input type="email" className="mt-1 w-full border border-gray-300 rounded-lg p-2 text-sm" value={email} onChange={e => setEmail(e.target.value)} placeholder="client@example.com" />
+          </div>
+        </section>
+
+        <section className="bg-white p-4 md:p-6 rounded-2xl border border-gray-200 shadow-sm">
+          <h3 className="font-semibold mb-2 text-lg">Interior Temperature Levels</h3>
+          <p className="text-sm text-gray-600 mb-4">Record temperature readings for each zone to mirror the checklist rows.</p>
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+            <div>
+              <label className="block text-sm font-medium text-gray-700">Garage / Storage</label>
+              <input className="mt-1 w-full border border-gray-300 rounded-lg p-2 text-sm" value={garageTemp} onChange={e => setGarageTemp(e.target.value)} placeholder="e.g. 78°F" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700">Main Floor</label>
+              <input className="mt-1 w-full border border-gray-300 rounded-lg p-2 text-sm" value={mainFloorTemp} onChange={e => setMainFloorTemp(e.target.value)} placeholder="e.g. 76°F" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700">2nd Floor / 2nd Zone</label>
+              <input className="mt-1 w-full border border-gray-300 rounded-lg p-2 text-sm" value={secondFloorTemp} onChange={e => setSecondFloorTemp(e.target.value)} placeholder="e.g. 74°F" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700">3rd Floor</label>
+              <input className="mt-1 w-full border border-gray-300 rounded-lg p-2 text-sm" value={thirdFloorTemp} onChange={e => setThirdFloorTemp(e.target.value)} placeholder="e.g. 72°F" />
+            </div>
           </div>
         </section>
 
@@ -932,9 +1275,12 @@ export default function ChecklistForm({ defaultData }: { defaultData?: Partial<C
           </div>
         </section>
 
-        <section className="bg-white p-4 md:p-6 rounded-2xl border border-gray-200 shadow-sm">
-          <h3 className="font-semibold mb-2">Final Tasks / Comments</h3>
-          <textarea placeholder="General comments and photos" value={comments} onChange={e => setComments(e.target.value)} className="w-full border border-gray-200 rounded-lg p-2 h-32 text-sm resize-y" />
+        <section className="bg-white p-4 md:p-6 rounded-2xl border border-gray-200 shadow-sm space-y-3">
+          <div>
+            <h3 className="font-semibold text-lg">Comments and Photos</h3>
+            <p className="text-xs text-gray-500">PROPERTY INSPECTIONS &amp; SERVICES — Phone: {COMPANY_PHONE} — Email: {COMPANY_SECONDARY_EMAIL}</p>
+          </div>
+          <textarea placeholder="Add any additional observations, follow-up tasks, or photo references" value={comments} onChange={e => setComments(e.target.value)} className="w-full border border-gray-200 rounded-lg p-2 h-32 text-sm resize-y" />
         </section>
 
         <div className="space-y-4">

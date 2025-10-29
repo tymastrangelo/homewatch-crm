@@ -44,6 +44,17 @@ CREATE TABLE public.clients (
   CONSTRAINT clients_pkey PRIMARY KEY (id),
   CONSTRAINT clients_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id)
 );
+CREATE TABLE public.inspectors (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  user_id uuid NOT NULL,
+  name text NOT NULL,
+  email text,
+  phone text,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  updated_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT inspectors_pkey PRIMARY KEY (id),
+  CONSTRAINT inspectors_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id)
+);
 CREATE TABLE public.properties (
   id uuid NOT NULL DEFAULT uuid_generate_v4(),
   name text NOT NULL,

@@ -165,6 +165,43 @@ export interface Database {
           }
         ]
       }
+      inspectors: {
+        Row: {
+          id: string
+          user_id: string | null
+          name: string
+          email: string | null
+          phone: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          user_id?: string | null
+          name: string
+          email?: string | null
+          phone?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          user_id?: string | null
+          name?: string
+          email?: string | null
+          phone?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: 'inspectors_user_id_fkey'
+            columns: ['user_id']
+            referencedRelation: 'users'
+            referencedColumns: ['id']
+          }
+        ]
+      }
       properties: {
         Row: {
           id: string

@@ -1,6 +1,7 @@
 import Image from 'next/image'
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
+import EmailChecklistButton from '@/components/EmailChecklistButton'
 import { createSupabaseServerClient } from '@/lib/supabaseServerClient'
 import type { Checklist, ChecklistItem, ChecklistPhoto, Client, Property } from '@/lib/supabaseClient'
 import type { ChecklistItemStatus } from '@/lib/types'
@@ -30,10 +31,23 @@ type ChecklistMeta = {
   clientName?: string
   address?: string
   inspector?: string
+  inspectorId?: string | null
+  inspectorEmail?: string | null
+  inspectorPhone?: string | null
   phone?: string
   email?: string
   comments?: string | null
   itemSummary?: string
+  garageTemp?: string | null
+  mainFloorTemp?: string | null
+  secondFloorTemp?: string | null
+  thirdFloorTemp?: string | null
+  temperatures?: {
+    garage?: string | null
+    mainFloor?: string | null
+    secondFloor?: string | null
+    thirdFloor?: string | null
+  }
 }
 
 const STATUS_META: Record<ChecklistItemStatus, { label: string; className: string; dotClassName: string }> = {
@@ -63,6 +77,7 @@ const CATEGORY_LABELS: Record<string, string> = {
   exterior: 'Exterior',
   interior: 'Interior',
   security: 'Security',
+  lanai_pool: 'Lanai / Pool',
   final: 'Final tasks'
 }
 
@@ -178,6 +193,21 @@ export default async function ChecklistDetailPage({ params }: PageProps) {
   const meta = parseMeta(checklist.notes)
   const property = checklist.properties
   const propertyClient = property?.client ?? null
+  const clientDisplayName = meta.clientName ?? propertyClient?.name ?? property?.name ?? ''
+  const propertyAddress = meta.address ?? property?.address ?? ''
+  const recipientEmail = meta.email ?? propertyClient?.email ?? null
+  const phoneValue = meta.phone ?? propertyClient?.phone ?? null
+  const emailValue = meta.email ?? propertyClient?.email ?? null
+  const inspectorPhoneValue = meta.inspectorPhone ?? null
+  const inspectorEmailValue = meta.inspectorEmail ?? null
+  const visitDateValue = checklist.visit_date ?? checklist.created_at
+  const temperatures = {
+    garage: meta.temperatures?.garage ?? meta.garageTemp ?? null,
+    mainFloor: meta.temperatures?.mainFloor ?? meta.mainFloorTemp ?? null,
+    secondFloor: meta.temperatures?.secondFloor ?? meta.secondFloorTemp ?? null,
+    thirdFloor: meta.temperatures?.thirdFloor ?? meta.thirdFloorTemp ?? null
+  }
+  const hasTemperatureReadings = Object.values(temperatures).some(value => (value ?? '').toString().trim() !== '')
 
   const resolvePhotoUrl = async (storagePath: string | null) => {
     if (!storagePath) return null
@@ -248,8 +278,9 @@ export default async function ChecklistDetailPage({ params }: PageProps) {
     'exterior',
     'interior',
     'security',
+    'lanai_pool',
     'final',
-    ...Array.from(groupedByCategory.keys()).filter(key => !['exterior', 'interior', 'security', 'final'].includes(key))
+    ...Array.from(groupedByCategory.keys()).filter(key => !['exterior', 'interior', 'security', 'lanai_pool', 'final'].includes(key))
   ].filter((key, index, array) => array.indexOf(key) === index && groupedByCategory.has(key))
 
   const totalItems = items.length
@@ -262,9 +293,9 @@ export default async function ChecklistDetailPage({ params }: PageProps) {
             <p className="text-sm text-gray-500">
               <Link href="/dashboard" className="text-primary-600 hover:underline">Back to dashboard</Link>
             </p>
-            <h1 className="text-2xl font-bold text-gray-900 md:text-3xl">{meta.clientName ?? propertyClient?.name ?? property?.name ?? 'Checklist details'}</h1>
+            <h1 className="text-2xl font-bold text-gray-900 md:text-3xl">{clientDisplayName || 'Checklist details'}</h1>
             <p className="text-sm text-gray-600 mt-1">
-              Visit on {formatDate(checklist.visit_date ?? checklist.created_at)}
+              Visit on {formatDate(visitDateValue)}
             </p>
           </div>
           <div className="flex w-full flex-col items-stretch gap-3 text-sm md:w-auto md:items-end">
@@ -285,6 +316,13 @@ export default async function ChecklistDetailPage({ params }: PageProps) {
             >
               Edit checklist
             </Link>
+            <EmailChecklistButton
+              checklistId={checklist.id}
+              recipientEmail={recipientEmail ?? ''}
+              clientName={clientDisplayName}
+              propertyAddress={propertyAddress}
+              visitDate={visitDateValue}
+            />
           </div>
         </header>
 
@@ -294,19 +332,31 @@ export default async function ChecklistDetailPage({ params }: PageProps) {
             <dl className="mt-4 space-y-3 text-sm text-gray-700">
               <div className="flex justify-between">
                 <dt className="text-gray-500">Client</dt>
-                <dd className="text-gray-900">{meta.clientName ?? propertyClient?.name ?? property?.name ?? 'Not provided'}</dd>
+                <dd className="text-gray-900">{clientDisplayName || 'Not provided'}</dd>
               </div>
               <div className="flex justify-between">
                 <dt className="text-gray-500">Property</dt>
-                <dd className="text-right text-gray-900">{meta.address ?? property?.address ?? 'Not provided'}</dd>
+                <dd className="text-right text-gray-900">{propertyAddress || 'Not provided'}</dd>
               </div>
               <div className="flex justify-between">
                 <dt className="text-gray-500">Inspector</dt>
                 <dd className="text-gray-900">{meta.inspector ?? 'Not provided'}</dd>
               </div>
+              {inspectorPhoneValue && (
+                <div className="flex justify-between">
+                  <dt className="text-gray-500">Inspector phone</dt>
+                  <dd className="text-gray-900">{inspectorPhoneValue}</dd>
+                </div>
+              )}
+              {inspectorEmailValue && (
+                <div className="flex justify-between">
+                  <dt className="text-gray-500">Inspector email</dt>
+                  <dd className="text-gray-900">{inspectorEmailValue}</dd>
+                </div>
+              )}
               <div className="flex justify-between">
                 <dt className="text-gray-500">Date</dt>
-                <dd className="text-gray-900">{formatDate(checklist.visit_date ?? checklist.created_at)}</dd>
+                <dd className="text-gray-900">{formatDate(visitDateValue)}</dd>
               </div>
               <div className="flex justify-between">
                 <dt className="text-gray-500">Created</dt>
@@ -316,16 +366,16 @@ export default async function ChecklistDetailPage({ params }: PageProps) {
                 <dt className="text-gray-500">Last updated</dt>
                 <dd className="text-gray-900">{formatDateTime(checklist.updated_at)}</dd>
               </div>
-              {(meta.phone ?? propertyClient?.phone) && (
+              {phoneValue && (
                 <div className="flex justify-between">
                   <dt className="text-gray-500">Phone</dt>
-                  <dd className="text-gray-900">{meta.phone ?? propertyClient?.phone ?? 'Not provided'}</dd>
+                  <dd className="text-gray-900">{phoneValue}</dd>
                 </div>
               )}
-              {(meta.email ?? propertyClient?.email) && (
+              {emailValue && (
                 <div className="flex justify-between">
                   <dt className="text-gray-500">Email</dt>
-                  <dd className="text-gray-900">{meta.email ?? propertyClient?.email ?? 'Not provided'}</dd>
+                  <dd className="text-gray-900">{emailValue}</dd>
                 </div>
               )}
             </dl>
@@ -344,6 +394,37 @@ export default async function ChecklistDetailPage({ params }: PageProps) {
                 </li>
               ))}
             </ul>
+            {hasTemperatureReadings && (
+              <div className="mt-4 space-y-2 rounded-lg border border-gray-200 bg-white p-3">
+                <h3 className="text-sm font-semibold text-gray-900">Temperature readings</h3>
+                <dl className="mt-2 space-y-1 text-sm text-gray-700">
+                  {temperatures.garage && (
+                    <div className="flex justify-between">
+                      <dt>Garage / Storage</dt>
+                      <dd className="font-medium text-gray-900">{temperatures.garage}</dd>
+                    </div>
+                  )}
+                  {temperatures.mainFloor && (
+                    <div className="flex justify-between">
+                      <dt>Main Floor</dt>
+                      <dd className="font-medium text-gray-900">{temperatures.mainFloor}</dd>
+                    </div>
+                  )}
+                  {temperatures.secondFloor && (
+                    <div className="flex justify-between">
+                      <dt>2nd Floor / 2nd Zone</dt>
+                      <dd className="font-medium text-gray-900">{temperatures.secondFloor}</dd>
+                    </div>
+                  )}
+                  {temperatures.thirdFloor && (
+                    <div className="flex justify-between">
+                      <dt>3rd Floor</dt>
+                      <dd className="font-medium text-gray-900">{temperatures.thirdFloor}</dd>
+                    </div>
+                  )}
+                </dl>
+              </div>
+            )}
             {meta.comments && (
               <div className="mt-4 rounded-lg border border-blue-100 bg-blue-50 p-3 text-sm text-blue-900">
                 <h3 className="font-semibold">Inspector comments</h3>

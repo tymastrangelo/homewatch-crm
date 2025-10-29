@@ -27,6 +27,35 @@ export interface Database {
           user_id?: string | null
         }
       }
+      inspectors: {
+        Row: {
+          id: string
+          user_id: string
+          name: string
+          email: string | null
+          phone: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          user_id?: string
+          name: string
+          email?: string | null
+          phone?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          user_id?: string
+          name?: string
+          email?: string | null
+          phone?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+      }
       checklists: {
         Row: {
           id: string
