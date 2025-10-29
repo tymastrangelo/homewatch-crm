@@ -2,7 +2,14 @@ import type { NextConfig } from 'next'
 import path from 'node:path'
 import CopyWebpackPlugin from 'copy-webpack-plugin'
 
-const nextConfig: NextConfig = {
+type ExtendedNextConfig = NextConfig & {
+	outputFileTracingIncludes?: Record<string, string[]>
+}
+
+const nextConfig: ExtendedNextConfig = {
+	outputFileTracingIncludes: {
+		'/api/checklists/[id]/email': ['node_modules/pdfkit/js/data/**/*']
+	},
 	images: {
 		remotePatterns: [
 			{
