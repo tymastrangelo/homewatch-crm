@@ -111,6 +111,26 @@ function formatCategoryLabel(value: string | null) {
     .join(' ')
 }
 
+function extractChecklistId(params: unknown): string | null {
+  if (!params || typeof params !== 'object') {
+    return null
+  }
+
+  const record = params as Record<string, unknown>
+  const rawValue = record.id
+
+  if (typeof rawValue === 'string' && rawValue.trim() !== '') {
+    return rawValue
+  }
+
+  if (Array.isArray(rawValue)) {
+    const candidate = rawValue.find(value => typeof value === 'string' && value.trim() !== '')
+    return typeof candidate === 'string' ? candidate : null
+  }
+
+  return null
+}
+
 type SupabaseClientInstance = Awaited<ReturnType<typeof createSupabaseServerClient>>
 
 type DownloadedAttachment = {
@@ -602,10 +622,14 @@ async function generateChecklistPdf({
   })
 }
 
-type RouteContext = { params: { id: string } } | { params: Promise<{ id: string }> }
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export async function POST(request: NextRequest, context: { params: Promise<any> }) {
+  const params = await context.params
+  const id = extractChecklistId(params)
 
-export async function POST(request: NextRequest, context: RouteContext) {
-  const { id } = await context.params
+  if (!id) {
+    return NextResponse.json({ error: 'Invalid checklist identifier.' }, { status: 400 })
+  }
 
   let payload: { email?: string } = {}
   try {

@@ -1,7 +1,7 @@
 import { createServerClient, type CookieOptions } from '@supabase/ssr'
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
-import { getSupabaseCredentials } from '@/lib/supabaseClient'
+import { getSupabaseCredentials } from '@/lib/supabaseCredentials'
 
 export async function middleware(req: NextRequest) {
   const res = NextResponse.next()

@@ -1,6 +1,7 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import { createBrowserClient } from '@supabase/ssr'
 import type { Database } from './types'
+import { getSupabaseCredentials } from './supabaseCredentials'
 
 export type Tables = Database['public']['Tables']
 export type Client = Tables['clients']['Row']
@@ -22,17 +23,6 @@ export type ChecklistPhoto = Tables['checklist_photos']['Row']
 
 let browserClient: SupabaseClient<Database> | null = null
 let serverClient: SupabaseClient<Database> | null = null
-
-function getSupabaseCredentials() {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-
-  if (!supabaseUrl || !supabaseAnonKey) {
-    throw new Error('Missing Supabase configuration. Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY environment variables.')
-  }
-
-  return { supabaseUrl, supabaseAnonKey }
-}
 
 export function getSupabaseClient(): SupabaseClient<Database> {
   if (typeof window === 'undefined') {
@@ -60,4 +50,4 @@ export function resetSupabaseClientCache() {
   serverClient = null
 }
 
-export { getSupabaseCredentials }
+export { getSupabaseCredentials } from './supabaseCredentials'

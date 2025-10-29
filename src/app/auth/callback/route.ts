@@ -1,6 +1,6 @@
 import { createServerClient, type CookieOptions } from '@supabase/ssr'
 import { type NextRequest, NextResponse } from 'next/server'
-import { getSupabaseCredentials } from '@/lib/supabaseClient'
+import { getSupabaseCredentials } from '@/lib/supabaseCredentials'
 
 export async function GET(request: NextRequest) {
   const requestUrl = new URL(request.url)
