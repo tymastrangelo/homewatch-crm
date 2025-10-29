@@ -360,7 +360,7 @@ async function generateChecklistPdf({
   items: ChecklistItemWithMeta[]
   photos?: PhotoAttachment[]
 }): Promise<Buffer> {
-  const { default: PDFDocument } = await import('pdfkit')
+  const { default: PDFDocument } = await import('pdfkit/js/pdfkit.standalone.js')
   let logoBuffer: Buffer | null = null
 
   try {
