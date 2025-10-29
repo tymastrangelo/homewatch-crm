@@ -3,6 +3,7 @@ import { promises as fs } from 'node:fs'
 import { NextResponse, type NextRequest } from 'next/server'
 import nodemailer from 'nodemailer'
 import { createSupabaseServerClient } from '@/lib/supabaseServerClient'
+import { PDFKIT_STANDARD_FONT_DATA } from '@/lib/pdfkitStandardFontData'
 import type { Checklist, ChecklistItem, ChecklistPhoto, Client, Property } from '@/lib/supabaseClient'
 import type { ChecklistItemStatus } from '@/lib/types'
 
@@ -72,6 +73,7 @@ const CATEGORY_ORDER = ['exterior', 'interior', 'security', 'lanai_pool', 'final
 let pdfkitFontPatchPromise: Promise<void> | null = null
 const pdfkitFontIndex = new Map<string, string>()
 let pdfkitFontIndexBuilt = false
+const pdfkitEmbeddedFontCache = new Map<string, Buffer>()
 
 type FsWithPdfkitPatch = typeof import('fs') & { __pdfkitFontPatched?: boolean }
 
@@ -169,6 +171,26 @@ async function ensurePdfkitStandardFonts() {
     type ReadFileSyncPath = ReadFileSyncParameters[0]
     type ReadFileSyncOptions = ReadFileSyncParameters[1]
     type ReadFileSyncResult = ReturnType<ReadFileSyncSignature>
+
+    const toReadFileSyncResult = (
+      raw: Buffer,
+      targetOptions: ReadFileSyncOptions
+    ): ReadFileSyncResult => {
+      if (typeof targetOptions === 'string') {
+        return raw.toString(targetOptions as BufferEncoding) as ReadFileSyncResult
+      }
+
+      if (
+        targetOptions &&
+        typeof targetOptions === 'object' &&
+        'encoding' in targetOptions &&
+        targetOptions.encoding
+      ) {
+        return raw.toString(targetOptions.encoding as BufferEncoding) as ReadFileSyncResult
+      }
+
+      return Buffer.from(raw) as ReadFileSyncResult
+    }
 
     const callOriginal = (
       targetPath: ReadFileSyncPath,
@@ -272,6 +294,17 @@ async function ensurePdfkitStandardFonts() {
           const indexedPath = pdfkitFontIndex.get(fileName)
           if (indexedPath && fsCjs.existsSync(indexedPath)) {
             return callOriginal(indexedPath as ReadFileSyncPath, options as ReadFileSyncOptions)
+          }
+
+          const embeddedFontData = PDFKIT_STANDARD_FONT_DATA[fileName]
+          if (embeddedFontData) {
+            let cachedBuffer = pdfkitEmbeddedFontCache.get(fileName)
+            if (!cachedBuffer) {
+              cachedBuffer = Buffer.from(embeddedFontData, 'base64')
+              pdfkitEmbeddedFontCache.set(fileName, cachedBuffer)
+            }
+
+            return toReadFileSyncResult(cachedBuffer, options as ReadFileSyncOptions)
           }
         }
         throw error
