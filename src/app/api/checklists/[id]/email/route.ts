@@ -139,12 +139,16 @@ async function ensurePdfkitStandardFonts() {
     const bundledTargets = [
       path.join(process.cwd(), '.next/server/chunks/data'),
       path.join(process.cwd(), '.next/server/vendor-chunks/data'),
-      path.join(process.cwd(), '.next/standalone/chunks/data'),
-      path.join(process.cwd(), '.next/standalone/vendor-chunks/data'),
       path.join(process.cwd(), '.next/server/app/api/checklists/[id]/email/data'),
       path.join(process.cwd(), '.next/server/app/api/checklists/[id]/email/standard'),
       path.join(process.cwd(), '.next/server/app/api/checklists/[id]/email/standard/data'),
-      path.join(process.cwd(), 'node_modules/pdfkit/js/data')
+      path.join(process.cwd(), '.next/standalone/chunks/data'),
+      path.join(process.cwd(), '.next/standalone/vendor-chunks/data'),
+      path.join(process.cwd(), '.next/standalone/app/api/checklists/[id]/email/data'),
+      path.join(process.cwd(), '.next/standalone/app/api/checklists/[id]/email/standard'),
+      path.join(process.cwd(), '.next/standalone/app/api/checklists/[id]/email/standard/data'),
+      path.join(process.cwd(), 'node_modules/pdfkit/js/data'),
+      path.join(process.cwd(), 'node_modules/pdfkit/data')
     ]
 
     for (const dir of bundledTargets) {
@@ -170,6 +174,21 @@ async function ensurePdfkitStandardFonts() {
           filePath.includes('/data/')
         ) {
           const fileName = path.basename(filePath)
+
+          if (requireFn) {
+            try {
+              const resolvedDataFile = requireFn.resolve(`pdfkit/js/data/${fileName}`)
+              return callOriginal(resolvedDataFile as ReadFileSyncPath, options as ReadFileSyncOptions)
+            } catch {
+              try {
+                const resolvedAltDataFile = requireFn.resolve(`pdfkit/data/${fileName}`)
+                return callOriginal(resolvedAltDataFile as ReadFileSyncPath, options as ReadFileSyncOptions)
+              } catch {
+                // fall through to directory search
+              }
+            }
+          }
+
           for (const dir of availableDirs) {
             const alternatePath = path.join(dir, fileName)
             if (fsCjs.existsSync(alternatePath)) {
