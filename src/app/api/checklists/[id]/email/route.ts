@@ -250,8 +250,8 @@ async function ensurePdfkitStandardFonts() {
           error &&
           typeof filePath === 'string' &&
           (error as NodeJS.ErrnoException).code === 'ENOENT' &&
-          filePath.includes('pdfkit') &&
-          filePath.includes('/data/')
+          filePath.includes('/data/') &&
+          (filePath.endsWith('.afm') || filePath.endsWith('.ttf') || filePath.endsWith('.cff'))
         ) {
           const fileName = path.basename(filePath)
 
