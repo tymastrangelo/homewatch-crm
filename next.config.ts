@@ -30,12 +30,19 @@ const nextConfig: ExtendedNextConfig = {
 				path.join(process.cwd(), '.next/server/chunks/data')
 			])
 
+			const apiRouteStandardDestinations = [
+				// PDFKit resolves bundled standard fonts relative to the API route directory in production.
+				path.join(process.cwd(), '.next/server/app/api/checklists/[id]/email/standard')
+			]
+			apiRouteStandardDestinations.forEach(destination => destinations.add(destination))
+
 			const outputPath = config.output?.path
 			if (outputPath) {
 				destinations.add(path.join(outputPath, 'vendor-chunks/data'))
 				destinations.add(path.join(outputPath, '../vendor-chunks/data'))
 				destinations.add(path.join(outputPath, 'chunks/data'))
 				destinations.add(path.join(outputPath, '../chunks/data'))
+				destinations.add(path.resolve(outputPath, 'api/checklists/[id]/email/standard'))
 			}
 
 			const patterns = Array.from(destinations).map(destination => ({
