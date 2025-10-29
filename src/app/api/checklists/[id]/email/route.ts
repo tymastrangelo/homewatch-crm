@@ -141,6 +141,9 @@ async function ensurePdfkitStandardFonts() {
       path.join(process.cwd(), '.next/server/vendor-chunks/data'),
       path.join(process.cwd(), '.next/standalone/chunks/data'),
       path.join(process.cwd(), '.next/standalone/vendor-chunks/data'),
+      path.join(process.cwd(), '.next/server/app/api/checklists/[id]/email/data'),
+      path.join(process.cwd(), '.next/server/app/api/checklists/[id]/email/standard'),
+      path.join(process.cwd(), '.next/server/app/api/checklists/[id]/email/standard/data'),
       path.join(process.cwd(), 'node_modules/pdfkit/js/data')
     ]
 
