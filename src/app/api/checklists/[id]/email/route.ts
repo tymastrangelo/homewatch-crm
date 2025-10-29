@@ -71,49 +71,93 @@ const CATEGORY_ORDER = ['exterior', 'interior', 'security', 'lanai_pool', 'final
 
 let pdfkitFontPatchPromise: Promise<void> | null = null
 
+type FsWithPdfkitPatch = typeof import('fs') & { __pdfkitFontPatched?: boolean }
+
 async function ensurePdfkitStandardFonts() {
   if (pdfkitFontPatchPromise) {
     return pdfkitFontPatchPromise
   }
 
   pdfkitFontPatchPromise = (async () => {
-  const fsModule = await import('node:fs')
-    const { createRequire } = await import('node:module')
+    const moduleNs = await import('node:module')
+    const createRequireFn =
+      typeof moduleNs.createRequire === 'function'
+        ? moduleNs.createRequire
+        : typeof moduleNs.default === 'object' && moduleNs.default !== null &&
+            typeof (moduleNs.default as { createRequire?: unknown }).createRequire === 'function'
+          ? ((moduleNs.default as { createRequire: typeof moduleNs.createRequire }).createRequire)
+          : typeof (moduleNs as { Module?: { createRequire?: unknown } }).Module?.createRequire === 'function'
+            ? ((moduleNs as { Module: { createRequire: typeof moduleNs.createRequire } }).Module.createRequire)
+            : typeof (moduleNs.default as { Module?: { createRequire?: unknown } } | undefined)?.Module?.createRequire === 'function'
+              ? (((moduleNs.default as { Module: { createRequire: typeof moduleNs.createRequire } }).Module.createRequire))
+              : null
 
-    const originalReadFileSync = fsModule.readFileSync.bind(fsModule)
-    const require = createRequire(import.meta.url)
+    const requireFn = createRequireFn ? createRequireFn(import.meta.url) : null
+
+    if (!requireFn) {
+      console.warn('Skipping PDFKit font patch: createRequire is unavailable in this runtime.')
+      return
+    }
+
+    const fsCjs = requireFn('fs') as FsWithPdfkitPatch
+
+    if (fsCjs.__pdfkitFontPatched) {
+      return
+    }
+
+    const originalReadFileSync = fsCjs.readFileSync.bind(fsCjs)
+    type ReadFileSyncSignature = typeof fsCjs.readFileSync
+    type ReadFileSyncParameters = Parameters<ReadFileSyncSignature>
+    type ReadFileSyncPath = ReadFileSyncParameters[0]
+    type ReadFileSyncOptions = ReadFileSyncParameters[1]
+    type ReadFileSyncResult = ReturnType<ReadFileSyncSignature>
+
+    const callOriginal = (
+      targetPath: ReadFileSyncPath,
+      targetOptions: ReadFileSyncOptions
+    ): ReadFileSyncResult => {
+      if (typeof targetOptions === 'undefined') {
+        return (originalReadFileSync as (path: ReadFileSyncPath) => ReadFileSyncResult)(targetPath)
+      }
+      return (originalReadFileSync as (
+        path: ReadFileSyncPath,
+        options: ReadFileSyncOptions
+      ) => ReadFileSyncResult)(targetPath, targetOptions)
+    }
 
     const candidateDirs = new Set<string>()
 
-    try {
-      const resolvedPdfkitPath = require.resolve('pdfkit')
-  candidateDirs.add(path.join(path.dirname(resolvedPdfkitPath), 'data'))
-    } catch {
-      // noop
+    if (requireFn) {
+      try {
+        const resolvedPdfkitPath = requireFn.resolve('pdfkit')
+        candidateDirs.add(path.join(path.dirname(resolvedPdfkitPath), 'data'))
+      } catch {
+        // ignore resolution failures; continue with fallback directories
+      }
     }
 
     const bundledTargets = [
-  path.join(process.cwd(), '.next/server/chunks/data'),
-  path.join(process.cwd(), '.next/server/vendor-chunks/data'),
-  path.join(process.cwd(), '.next/standalone/chunks/data'),
-  path.join(process.cwd(), '.next/standalone/vendor-chunks/data'),
-  path.join(process.cwd(), 'node_modules/pdfkit/js/data')
+      path.join(process.cwd(), '.next/server/chunks/data'),
+      path.join(process.cwd(), '.next/server/vendor-chunks/data'),
+      path.join(process.cwd(), '.next/standalone/chunks/data'),
+      path.join(process.cwd(), '.next/standalone/vendor-chunks/data'),
+      path.join(process.cwd(), 'node_modules/pdfkit/js/data')
     ]
 
     for (const dir of bundledTargets) {
-      if (fsModule.existsSync(dir)) {
+      if (fsCjs.existsSync(dir)) {
         candidateDirs.add(dir)
       }
     }
 
-    const availableDirs = Array.from(candidateDirs).filter(dir => fsModule.existsSync(dir))
+    const availableDirs = Array.from(candidateDirs).filter(dir => fsCjs.existsSync(dir))
     if (availableDirs.length === 0) {
       return
     }
 
-    const patchedReadFileSync = ((filePath: Parameters<typeof originalReadFileSync>[0], options?: Parameters<typeof originalReadFileSync>[1]) => {
+    const patchedReadFileSync = ((filePath: ReadFileSyncPath, options?: ReadFileSyncOptions) => {
       try {
-        return originalReadFileSync(filePath, options as never)
+        return callOriginal(filePath, options as ReadFileSyncOptions)
       } catch (error) {
         if (
           error &&
@@ -125,16 +169,17 @@ async function ensurePdfkitStandardFonts() {
           const fileName = path.basename(filePath)
           for (const dir of availableDirs) {
             const alternatePath = path.join(dir, fileName)
-            if (fsModule.existsSync(alternatePath)) {
-              return originalReadFileSync(alternatePath, options as never)
+            if (fsCjs.existsSync(alternatePath)) {
+              return callOriginal(alternatePath as ReadFileSyncPath, options as ReadFileSyncOptions)
             }
           }
         }
         throw error
       }
-    }) as typeof originalReadFileSync
+    }) as typeof fsCjs.readFileSync
 
-  ;(fsModule as unknown as { readFileSync: typeof originalReadFileSync }).readFileSync = patchedReadFileSync
+    fsCjs.readFileSync = patchedReadFileSync
+    fsCjs.__pdfkitFontPatched = true
   })().catch(error => {
     pdfkitFontPatchPromise = null
     throw error
