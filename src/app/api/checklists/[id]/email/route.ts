@@ -62,7 +62,7 @@ const COMPANY_PRIMARY_EMAIL = 'info@239homeservices.com'
 const COMPANY_SECONDARY_EMAIL = 'info@239homeservices.com'
 
 const STATUS_LABELS: Record<ChecklistItemStatus, string> = {
-  done: 'DONE',
+  done: '✓',
   issue: 'ISSUE',
   na: 'N/A',
   unchecked: 'UNCHECKED'
@@ -749,9 +749,9 @@ async function generateChecklistPdf({
     }
     doc.moveDown()
 
-    doc.fontSize(11).text('Exterior / Interior Checklist')
+  doc.fontSize(11).text('Exterior / Interior Checklist')
     doc.moveDown(0.25)
-    doc.fontSize(9).text('Visual review and ensure mechanicals are in working order. Status values: DONE, ISSUE, N/A, UNCHECKED.')
+  doc.fontSize(9).text('Visual review and ensure mechanicals are in working order. Status values: ✓, ISSUE, N/A, UNCHECKED.')
     doc.moveDown()
 
     orderedCategories.forEach(categoryKey => {
