@@ -2,13 +2,23 @@ import type { NextConfig } from 'next'
 import path from 'node:path'
 import CopyWebpackPlugin from 'copy-webpack-plugin'
 
+type NextExperimental = NonNullable<NextConfig['experimental']>
+
 type ExtendedNextConfig = NextConfig & {
 	outputFileTracingIncludes?: Record<string, string[]>
+	experimental?: NextExperimental & {
+		outputFileTracingExcludes?: Record<string, string[]>
+	}
 }
 
 const nextConfig: ExtendedNextConfig = {
 	outputFileTracingIncludes: {
 		'/api/checklists/[id]/email': ['node_modules/pdfkit/js/data/**/*']
+	},
+	experimental: {
+		outputFileTracingExcludes: {
+			'/api/checklists/[id]/email': ['**/.next/cache/**']
+		}
 	},
 	images: {
 		remotePatterns: [

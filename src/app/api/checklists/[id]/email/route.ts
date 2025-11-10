@@ -255,6 +255,17 @@ async function ensurePdfkitStandardFonts() {
         ) {
           const fileName = path.basename(filePath)
 
+          const embeddedFontData = PDFKIT_STANDARD_FONT_DATA[fileName]
+          if (embeddedFontData) {
+            let cachedBuffer = pdfkitEmbeddedFontCache.get(fileName)
+            if (!cachedBuffer) {
+              cachedBuffer = Buffer.from(embeddedFontData, 'base64')
+              pdfkitEmbeddedFontCache.set(fileName, cachedBuffer)
+            }
+
+            return toReadFileSyncResult(cachedBuffer, options as ReadFileSyncOptions)
+          }
+
           if (requireFn) {
             try {
               const resolvedDataFile = requireFn.resolve(`pdfkit/js/data/${fileName}`)
@@ -278,11 +289,9 @@ async function ensurePdfkitStandardFonts() {
 
           if (!pdfkitFontIndexBuilt) {
             const candidateBaseDirs = [
-              path.join(process.cwd(), '.next'),
-              path.join(process.cwd(), '.next/server'),
               path.join(process.cwd(), '.next/server/chunks'),
               path.join(process.cwd(), '.next/server/app'),
-              path.join(process.cwd(), '.next/standalone'),
+              path.join(process.cwd(), '.next/server/app/api/checklists/[id]/email'),
               path.join(process.cwd(), '.next/standalone/chunks'),
               path.join(process.cwd(), '.next/standalone/app'),
               path.join(process.cwd(), 'node_modules/pdfkit'),
@@ -294,17 +303,6 @@ async function ensurePdfkitStandardFonts() {
           const indexedPath = pdfkitFontIndex.get(fileName)
           if (indexedPath && fsCjs.existsSync(indexedPath)) {
             return callOriginal(indexedPath as ReadFileSyncPath, options as ReadFileSyncOptions)
-          }
-
-          const embeddedFontData = PDFKIT_STANDARD_FONT_DATA[fileName]
-          if (embeddedFontData) {
-            let cachedBuffer = pdfkitEmbeddedFontCache.get(fileName)
-            if (!cachedBuffer) {
-              cachedBuffer = Buffer.from(embeddedFontData, 'base64')
-              pdfkitEmbeddedFontCache.set(fileName, cachedBuffer)
-            }
-
-            return toReadFileSyncResult(cachedBuffer, options as ReadFileSyncOptions)
           }
         }
         throw error
