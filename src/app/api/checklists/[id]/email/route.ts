@@ -62,7 +62,7 @@ const COMPANY_PRIMARY_EMAIL = 'info@239homeservices.com'
 const COMPANY_SECONDARY_EMAIL = 'info@239homeservices.com'
 
 const STATUS_LABELS: Record<ChecklistItemStatus, string> = {
-  done: '✓',
+  done: 'COMPLETE',
   issue: 'ISSUE',
   na: 'N/A',
   unchecked: 'UNCHECKED'
@@ -751,7 +751,7 @@ async function generateChecklistPdf({
 
   doc.fontSize(11).text('Exterior / Interior Checklist')
     doc.moveDown(0.25)
-  doc.fontSize(9).text('Visual review and ensure mechanicals are in working order. Status values: ✓, ISSUE, N/A, UNCHECKED.')
+  doc.fontSize(9).text('Visual review and ensure mechanicals are in working order. Status values: Check mark (complete), ISSUE, N/A, UNCHECKED.')
     doc.moveDown()
 
     orderedCategories.forEach(categoryKey => {
@@ -760,10 +760,57 @@ async function generateChecklistPdf({
       doc.moveDown(0.25)
       categoryItems.forEach(item => {
         const status = (item.status ?? 'unchecked') as ChecklistItemStatus
-        doc.fontSize(10).fillColor('#000000').text(`[${STATUS_LABELS[status]}] ${item.item_text}`)
-        if (item.notes) {
-          doc.fontSize(9).fillColor('#555555').text(`Notes: ${item.notes}`, { indent: 12 })
+        const baseFontSize = 10
+        doc.fontSize(baseFontSize).fillColor('#000000')
+
+        if (status === 'done') {
+          const baseX = doc.x
+          const baseY = doc.y
+          const lineHeight = doc.currentLineHeight()
+          const iconSize = lineHeight * 0.7
+          const iconX = baseX
+          const iconY = baseY + (lineHeight - iconSize) / 2
+
+          doc.save()
+          doc.lineWidth(1.4)
+          doc.strokeColor('#15803d')
+          doc.moveTo(iconX, iconY + iconSize * 0.55)
+            .lineTo(iconX + iconSize * 0.4, iconY + iconSize * 0.95)
+            .lineTo(iconX + iconSize, iconY + iconSize * 0.05)
+            .stroke()
+          doc.restore()
+
+          const textX = iconX + iconSize + 6
+          doc.text(item.item_text, textX, baseY)
+          let currentY = doc.y
+
+          if (item.notes) {
+            doc.fontSize(9).fillColor('#555555').text(`Notes: ${item.notes}`, textX, doc.y)
+            currentY = doc.y
+            doc.fontSize(baseFontSize).fillColor('#000000')
+          }
+
+          doc.x = baseX
+          doc.y = Math.max(currentY, baseY + lineHeight)
+          if (!item.notes) {
+            doc.fontSize(baseFontSize).fillColor('#000000')
+          }
+        } else {
+          const statusLabel = STATUS_LABELS[status]
+          const labelText = `[${statusLabel}]`
+          const labelX = doc.x
+          doc.text(`${labelText} ${item.item_text}`)
+
+          if (item.notes) {
+            doc.fontSize(9).fillColor('#555555').text(`Notes: ${item.notes}`, {
+              indent: doc.widthOfString(`${labelText} `)
+            })
+          }
+
+          doc.fontSize(baseFontSize).fillColor('#000000')
+          doc.x = labelX
         }
+
         doc.moveDown(0.2)
       })
       doc.moveDown(0.5)
