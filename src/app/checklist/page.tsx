@@ -1,8 +1,10 @@
 import ChecklistForm from '@/components/ChecklistForm'
 
+export const dynamic = 'force-dynamic'
+
 export default function ChecklistPage() {
   return (
-    <main className="min-h-screen bg-gray-50">
+    <main>
       <ChecklistForm />
     </main>
   )

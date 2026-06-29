@@ -1,50 +1,47 @@
-import { createServerClient, type CookieOptions } from '@supabase/ssr'
+import { createServerClient } from '@supabase/ssr'
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
 import { getSupabaseCredentials } from '@/lib/supabaseCredentials'
 
+const PUBLIC_PATHS = ['/login', '/auth']
+
 export async function middleware(req: NextRequest) {
-  const res = NextResponse.next()
+  let res = NextResponse.next({ request: req })
 
   const { supabaseUrl, supabaseAnonKey } = getSupabaseCredentials()
 
-  const supabase = createServerClient(
-    supabaseUrl,
-    supabaseAnonKey,
-    {
-      cookies: {
-        get: (name: string) => req.cookies.get(name)?.value,
-        set: (name: string, value: string, options: CookieOptions) => {
-          res.cookies.set({
-            name,
-            value,
-            ...options,
-          })
-        },
-        remove: (name: string, options: CookieOptions) => {
-          res.cookies.delete({
-            name,
-            ...options,
-          })
-        }
+  const supabase = createServerClient(supabaseUrl, supabaseAnonKey, {
+    cookies: {
+      getAll() {
+        return req.cookies.getAll()
+      },
+      setAll(cookiesToSet) {
+        // Mirror refreshed auth cookies onto both the request and the response
+        // so the session stays valid for the downstream render.
+        cookiesToSet.forEach(({ name, value }) => req.cookies.set(name, value))
+        res = NextResponse.next({ request: req })
+        cookiesToSet.forEach(({ name, value, options }) => res.cookies.set(name, value, options))
       }
     }
-  )
+  })
 
-  // Refresh session if expired
-  const { data: { session } } = await supabase.auth.getSession()
+  // getUser() revalidates the token with Supabase — unlike getSession(), which
+  // trusts whatever is in the cookie. This is the secure choice for gating.
+  const {
+    data: { user }
+  } = await supabase.auth.getUser()
 
-  // If not authenticated and not accessing login page, redirect to login
-  if (!session && !req.nextUrl.pathname.startsWith('/login')) {
+  const { pathname } = req.nextUrl
+  const isPublic = PUBLIC_PATHS.some(p => pathname === p || pathname.startsWith(`${p}/`))
+
+  if (!user && !isPublic) {
     const redirectUrl = req.nextUrl.clone()
     redirectUrl.pathname = '/login'
-    // Store the original URL to redirect back after login
-    redirectUrl.searchParams.set('redirectTo', req.nextUrl.pathname)
+    redirectUrl.searchParams.set('redirectTo', pathname)
     return NextResponse.redirect(redirectUrl)
   }
 
-  // If authenticated and accessing login page or root, redirect to dashboard
-  if (session && (req.nextUrl.pathname === '/login' || req.nextUrl.pathname === '/')) {
+  if (user && (pathname === '/login' || pathname === '/')) {
     const redirectUrl = req.nextUrl.clone()
     redirectUrl.pathname = '/dashboard'
     return NextResponse.redirect(redirectUrl)
@@ -53,9 +50,6 @@ export async function middleware(req: NextRequest) {
   return res
 }
 
-// Specify which routes to run the middleware on
 export const config = {
-  matcher: [
-    '/((?!_next/static|_next/image|favicon.ico|api/auth).*)',
-  ],
+  matcher: ['/((?!_next/static|_next/image|favicon.ico|api/auth).*)']
 }

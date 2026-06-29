@@ -1,25 +1,23 @@
-"use client"
-import Image from 'next/image'
-import { useEffect, useMemo, useState } from 'react'
-import { useRouter } from 'next/navigation'
-import {
-  getSupabaseClient,
-  type Client,
-  type ClientInsert,
-  type ClientUpdate,
-  type Property,
-  type PropertyInsert,
-  type PropertyUpdate,
-  type Checklist,
-  type ChecklistInsert,
-  type ChecklistUpdate,
-  type ChecklistItemInsert,
-  type Inspector,
-  type InspectorInsert,
-  type InspectorUpdate
-} from '@/lib/supabaseClient'
+'use client'
 
-type ChecklistPhotoDraft = {
+import Image from 'next/image'
+import Link from 'next/link'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { useRouter } from 'next/navigation'
+import { getSupabaseClient, type Client, type Inspector, type Property } from '@/lib/supabaseClient'
+import { CHECKLIST_PHOTO_BUCKET, COMPANY } from '@/lib/constants'
+import {
+  CHECKLIST_TEMPLATE,
+  CATEGORY_ORDER,
+  categoryLabel,
+  type ChecklistCategory
+} from '@/lib/checklistTemplate'
+import { saveChecklist, type SaveChecklistItem } from '@/app/actions/checklists'
+import { CameraIcon } from '@/components/icons'
+import { prepareImageForUpload, runWithConcurrency } from '@/lib/clientImage'
+import type { ChecklistItemStatus } from '@/lib/types'
+
+type PhotoDraft = {
   id: string
   previewUrl: string
   file?: File
@@ -27,1278 +25,591 @@ type ChecklistPhotoDraft = {
   persistedId?: string | null
 }
 
-type ItemStatus = 'done' | 'na' | 'issue' | 'unchecked'
-
-type ChecklistItemForm = {
-  id: string
-  label: string
+type ItemState = {
+  uid: string
+  itemKey: string | null
   category: string
-  status: ItemStatus
-  notes?: string | null
-  photos: ChecklistPhotoDraft[]
+  label: string
+  status: ChecklistItemStatus
+  notes: string
+  sortOrder: number
+  persistedId: string | null
+  photos: PhotoDraft[]
+}
+
+export type ChecklistFormDefaultItem = {
   persistedId?: string | null
+  itemKey?: string | null
+  category?: string
+  label: string
+  status?: ChecklistItemStatus
+  notes?: string | null
+  photos?: Array<{ id?: string; url: string; storagePath?: string | null }>
 }
 
-type ChecklistItemInput = Omit<ChecklistItemForm, 'photos'> & {
-  photos?: Array<ChecklistPhotoDraft | string>
-}
-
-type ClientOption = Client & {
-  properties: Array<Pick<Property, 'id' | 'address' | 'name'>>
-}
-
-type ChecklistData = {
-  clientId?: string | null
-  clientName: string
-  address: string
-  dateOfArrival: string
-  inspector: string
-  inspectorId?: string | null
-  inspectorEmail?: string | null
-  inspectorPhone?: string | null
-  phone: string
-  email: string
-  garageTemp?: string | null
-  mainFloorTemp?: string | null
-  secondFloorTemp?: string | null
-  thirdFloorTemp?: string | null
-  items?: ChecklistItemInput[]
-  comments?: string
+export type ChecklistFormDefaults = {
   checklistId?: string
+  clientId?: string | null
+  clientName?: string
+  address?: string
   propertyId?: string | null
+  inspectorId?: string | null
+  inspectorName?: string
+  inspectorEmail?: string
+  inspectorPhone?: string
+  phone?: string
+  email?: string
+  dateOfArrival?: string
+  comments?: string
+  temps?: { garage?: string; mainFloor?: string; secondFloor?: string; thirdFloor?: string }
+  items?: ChecklistFormDefaultItem[]
 }
 
-const COMPANY_PHONE = '239.572.2025'
-const COMPANY_PRIMARY_EMAIL = 'info@239homeservices.com'
-const COMPANY_SECONDARY_EMAIL = 'info@239homeservices.com'
+type ClientOption = Client & { properties: Array<Pick<Property, 'id' | 'name' | 'address'>> }
 
-const initialItems: ChecklistItemForm[] = [
-  { id: 'forced_entry', category: 'exterior', label: 'Visual check for evidence of forced entry, vandalism, theft or damage', status: 'unchecked', photos: [], persistedId: null },
-  { id: 'yard_maintenance', category: 'exterior', label: 'Visual inspection of yard/landscaping to assure regular maintenance', status: 'unchecked', photos: [], persistedId: null },
-  { id: 'outdoor_fixtures', category: 'exterior', label: 'Visual inspection of outdoor light fixtures, fencing, windows, screens, and mailbox', status: 'unchecked', photos: [], persistedId: null },
-  { id: 'hose_faucet', category: 'exterior', label: 'Check exterior hose and faucet for leaks', status: 'unchecked', photos: [], persistedId: null },
-  { id: 'remove_mail', category: 'exterior', label: 'Removal of newspapers, flyers, packages, mail and other evidence of non-occupancy', status: 'unchecked', photos: [], persistedId: null },
-  { id: 'roof_gutters', category: 'exterior', label: 'Visual inspection of roof and gutters from the ground', status: 'unchecked', photos: [], persistedId: null },
-  { id: 'interior_theft', category: 'interior', label: 'Inspect for signs of theft, vandalism, damage or other disturbance', status: 'unchecked', photos: [], persistedId: null },
-  { id: 'fuse_box', category: 'interior', label: 'Check fuse box for tripped breakers or evidence of power surge', status: 'unchecked', photos: [], persistedId: null },
-  { id: 'water_supply', category: 'interior', label: 'Turn on water supply if turned off', status: 'unchecked', photos: [], persistedId: null },
-  { id: 'hot_water_heater', category: 'interior', label: 'Visual check of hot water heater', status: 'unchecked', photos: [], persistedId: null },
-  { id: 'hvac', category: 'interior', label: 'Visual check of HVAC', status: 'unchecked', photos: [], persistedId: null },
-  { id: 'thermostat', category: 'interior', label: 'Check that thermostat is set at correct temperature', status: 'unchecked', photos: [], persistedId: null },
-  { id: 'temps', category: 'interior', label: 'Document interior temperature levels (Garage/Storage, Main Floor, 2nd Zone, 3rd Floor)', status: 'unchecked', photos: [], persistedId: null },
-  { id: 'secure_windows', category: 'security', label: 'Check that all windows and entryways are secure', status: 'unchecked', photos: [], persistedId: null },
-  { id: 'security_system', category: 'security', label: 'Check security system is set and working properly', status: 'unchecked', photos: [], persistedId: null },
-  { id: 'lighting', category: 'interior', label: 'Check interior and exterior lighting', status: 'unchecked', photos: [], persistedId: null },
-  { id: 'lights_operation', category: 'interior', label: 'Operation of all lights - interior and exterior', status: 'unchecked', photos: [], persistedId: null },
-  { id: 'water_damage', category: 'interior', label: 'Visual inspection of walls, ceilings, windows, tubs/showers for evidence of water damage, leakage, mold', status: 'unchecked', photos: [], persistedId: null },
-  { id: 'water_lines', category: 'interior', label: 'Water flex lines and drains – Run sinks and toilets', status: 'unchecked', photos: [], persistedId: null },
-  { id: 'garbage_disposal', category: 'interior', label: 'Garbage disposal(s)', status: 'unchecked', photos: [], persistedId: null },
-  { id: 'pests', category: 'interior', label: 'Inspect for visible evidence of insects, pests, rodents', status: 'unchecked', photos: [], persistedId: null },
-  { id: 'appliances', category: 'interior', label: 'Visual check of appliances', status: 'unchecked', photos: [], persistedId: null },
-  { id: 'freezers', category: 'interior', label: 'Check that freezers, refrigerators and wine coolers are working', status: 'unchecked', photos: [], persistedId: null },
-  { id: 'icemaker', category: 'interior', label: 'Ensure icemakers are in "off" position', status: 'unchecked', photos: [], persistedId: null },
-  { id: 'clocks', category: 'interior', label: 'Check clocks settings - reset if needed', status: 'unchecked', photos: [], persistedId: null },
-  { id: 'lanai_screens', category: 'lanai_pool', label: 'Lanai/Pool - Screen door(s), screens, and cage structure', status: 'unchecked', photos: [], persistedId: null },
-  { id: 'lanai_water', category: 'lanai_pool', label: 'Lanai/Pool - Water level and condition', status: 'unchecked', photos: [], persistedId: null },
-  { id: 'lanai_equipment', category: 'lanai_pool', label: 'Lanai/Pool - Equipment', status: 'unchecked', photos: [], persistedId: null },
-  { id: 'final_hot_water', category: 'final', label: 'Turn off hot water heater', status: 'unchecked', photos: [], persistedId: null },
-  { id: 'final_water_supply', category: 'final', label: 'Turn off water supply', status: 'unchecked', photos: [], persistedId: null },
-  { id: 'final_lights', category: 'final', label: 'Turn off all lights', status: 'unchecked', photos: [], persistedId: null },
-  { id: 'final_security', category: 'final', label: 'Enable security system (if applicable) and lock all doors and windows', status: 'unchecked', photos: [], persistedId: null }
+const STATUS_BUTTONS: Array<{ value: ChecklistItemStatus; label: string; active: string }> = [
+  { value: 'done', label: 'Done', active: 'bg-green-600 border-green-600 text-white' },
+  { value: 'issue', label: 'Issue', active: 'bg-red-600 border-red-600 text-white' },
+  { value: 'na', label: 'N/A', active: 'bg-gray-500 border-gray-500 text-white' },
+  { value: 'unchecked', label: 'Skip', active: 'bg-gray-200 border-gray-300 text-gray-700' }
 ]
 
-const generateLocalId = () => {
-  if (typeof crypto !== 'undefined') {
-    if ('randomUUID' in crypto && typeof crypto.randomUUID === 'function') {
-      return crypto.randomUUID()
-    }
+function uid() {
+  if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) return crypto.randomUUID()
+  return `id-${Math.random().toString(36).slice(2)}-${Date.now()}`
+}
 
-    if ('getRandomValues' in crypto && typeof crypto.getRandomValues === 'function') {
-      const buffer = new Uint8Array(16)
-      crypto.getRandomValues(buffer)
-      buffer[6] = (buffer[6] & 0x0f) | 0x40
-      buffer[8] = (buffer[8] & 0x3f) | 0x80
-      const hex = Array.from(buffer, byte => byte.toString(16).padStart(2, '0')).join('')
-      return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`
+function buildInitialItems(defaults?: ChecklistFormDefaults): ItemState[] {
+  const fromDefaults = new Map<string, ChecklistFormDefaultItem>()
+  ;(defaults?.items ?? []).forEach(item => {
+    const key = item.itemKey ?? item.label.trim().toLowerCase()
+    fromDefaults.set(key, item)
+  })
+
+  const items: ItemState[] = CHECKLIST_TEMPLATE.map(template => {
+    const match = fromDefaults.get(template.key) ?? fromDefaults.get(template.label.trim().toLowerCase())
+    if (match) fromDefaults.delete(match.itemKey ?? match.label.trim().toLowerCase())
+    return {
+      uid: uid(),
+      itemKey: template.key,
+      category: template.category,
+      label: template.label,
+      sortOrder: template.sortOrder,
+      status: match?.status ?? 'unchecked',
+      notes: match?.notes ?? '',
+      persistedId: match?.persistedId ?? null,
+      photos: (match?.photos ?? []).map(p => ({
+        id: p.id ?? uid(),
+        previewUrl: p.url,
+        storagePath: p.storagePath ?? null,
+        persistedId: p.id ?? null
+      }))
     }
+  })
+
+  // Preserve any non-template (custom) items that came from saved data.
+  let extraOrder = 1000
+  for (const leftover of fromDefaults.values()) {
+    items.push({
+      uid: uid(),
+      itemKey: leftover.itemKey ?? null,
+      category: leftover.category ?? 'general',
+      label: leftover.label,
+      sortOrder: extraOrder++,
+      status: leftover.status ?? 'unchecked',
+      notes: leftover.notes ?? '',
+      persistedId: leftover.persistedId ?? null,
+      photos: (leftover.photos ?? []).map(p => ({
+        id: p.id ?? uid(),
+        previewUrl: p.url,
+        storagePath: p.storagePath ?? null,
+        persistedId: p.id ?? null
+      }))
+    })
   }
 
-  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, char => {
-    const random = (Math.random() * 16) | 0
-    const value = char === 'x' ? random : (random & 0x3) | 0x8
-    return value.toString(16)
-  })
+  return items
 }
 
-const normalizeItems = (rawItems?: ChecklistItemInput[]): ChecklistItemForm[] => {
-  const source: ChecklistItemInput[] = rawItems && rawItems.length > 0 ? rawItems : initialItems
-  const normalized = source.map((item: ChecklistItemInput) => {
-    const normalizedPhotos: ChecklistPhotoDraft[] = (item.photos ?? []).map((photo: ChecklistPhotoDraft | string) => {
-      if (typeof photo === 'string') {
-        return {
-          id: generateLocalId(),
-          previewUrl: photo,
-          storagePath: null,
-          persistedId: null
-        }
-      }
-
-      return {
-        id: photo.id ?? generateLocalId(),
-        previewUrl: photo.previewUrl ?? photo.storagePath ?? '',
-        file: photo.file,
-        storagePath: photo.storagePath ?? null,
-        persistedId: photo.persistedId ?? null
-      }
-    }).filter(photo => Boolean(photo.previewUrl))
-
-    return {
-      ...item,
-      id: item.id ?? item.persistedId ?? generateLocalId(),
-      category: item.category ?? 'general',
-      status: item.status ?? 'unchecked',
-      notes: item.notes ?? '',
-      photos: normalizedPhotos,
-      persistedId: item.persistedId ?? null
-    }
-  })
-
-  const presentLabels = new Set(normalized.map(item => item.label.trim().toLowerCase()))
-
-  initialItems.forEach(templateItem => {
-    if (!presentLabels.has(templateItem.label.trim().toLowerCase())) {
-      normalized.push({
-        ...templateItem,
-        id: templateItem.id,
-        notes: '',
-        photos: [],
-        status: 'unchecked',
-        persistedId: null
-      })
-    }
-  })
-
-  return normalized
-}
-export default function ChecklistForm({ defaultData }: { defaultData?: Partial<ChecklistData> }) {
+export default function ChecklistForm({ defaultData }: { defaultData?: ChecklistFormDefaults }) {
   const router = useRouter()
   const supabase = useMemo(() => getSupabaseClient(), [])
-  const [clientName, setClientName] = useState(defaultData?.clientName || '')
-  const [address, setAddress] = useState(defaultData?.address || '')
-  const [dateOfArrival, setDateOfArrival] = useState(defaultData?.dateOfArrival || '')
-  const [inspector, setInspector] = useState(defaultData?.inspector || '')
-  const [selectedInspectorId, setSelectedInspectorId] = useState<string | null>(defaultData?.inspectorId ?? null)
-  const [inspectorEmail, setInspectorEmail] = useState(defaultData?.inspectorEmail || '')
-  const [inspectorPhone, setInspectorPhone] = useState(defaultData?.inspectorPhone || '')
+  const isEditing = Boolean(defaultData?.checklistId)
+
+  const [clients, setClients] = useState<ClientOption[]>([])
   const [inspectors, setInspectors] = useState<Inspector[]>([])
-  const [isLoadingInspectors, setIsLoadingInspectors] = useState<boolean>(true)
-  const [isAddingNewInspector, setIsAddingNewInspector] = useState<boolean>(() => !defaultData?.inspectorId)
-  const defaultInspectorName = defaultData?.inspector ?? ''
+
+  const [clientId, setClientId] = useState<string | null>(defaultData?.clientId ?? null)
+  const [clientName, setClientName] = useState(defaultData?.clientName ?? '')
   const [phone, setPhone] = useState(defaultData?.phone ?? '')
   const [email, setEmail] = useState(defaultData?.email ?? '')
-  const [garageTemp, setGarageTemp] = useState(defaultData?.garageTemp || '')
-  const [mainFloorTemp, setMainFloorTemp] = useState(defaultData?.mainFloorTemp || '')
-  const [secondFloorTemp, setSecondFloorTemp] = useState(defaultData?.secondFloorTemp || '')
-  const [thirdFloorTemp, setThirdFloorTemp] = useState(defaultData?.thirdFloorTemp || '')
-  const [items, setItems] = useState<ChecklistItemForm[]>(() => normalizeItems(defaultData?.items))
-  const [comments, setComments] = useState(defaultData?.comments || '')
-  const [selectedClientId, setSelectedClientId] = useState<string | null>(defaultData?.clientId ?? null)
-  const [selectedPropertyId, setSelectedPropertyId] = useState<string | null>(defaultData?.propertyId ?? null)
-  const [clients, setClients] = useState<ClientOption[]>([])
-  const [isLoadingClients, setIsLoadingClients] = useState<boolean>(true)
-  const [isAddingNewClient, setIsAddingNewClient] = useState<boolean>(false)
-  const [isAddingNewProperty, setIsAddingNewProperty] = useState<boolean>(false)
-  const [editingChecklistId, setEditingChecklistId] = useState<string | null>(defaultData?.checklistId ?? null)
-  const submitLabel = editingChecklistId ? 'Update Checklist' : 'Submit Checklist'
+  const [propertyId, setPropertyId] = useState<string | null>(defaultData?.propertyId ?? null)
+  const [address, setAddress] = useState(defaultData?.address ?? '')
+  const [addingClient, setAddingClient] = useState(false)
+  const [addingProperty, setAddingProperty] = useState(false)
 
+  const [inspectorId, setInspectorId] = useState<string | null>(defaultData?.inspectorId ?? null)
+  const [inspectorName, setInspectorName] = useState(defaultData?.inspectorName ?? '')
+  const [inspectorEmail, setInspectorEmail] = useState(defaultData?.inspectorEmail ?? '')
+  const [inspectorPhone, setInspectorPhone] = useState(defaultData?.inspectorPhone ?? '')
+  const [addingInspector, setAddingInspector] = useState(!defaultData?.inspectorId)
+
+  const [dateOfArrival, setDateOfArrival] = useState(defaultData?.dateOfArrival ?? new Date().toISOString().slice(0, 10))
+  const [temps, setTemps] = useState({
+    garage: defaultData?.temps?.garage ?? '',
+    mainFloor: defaultData?.temps?.mainFloor ?? '',
+    secondFloor: defaultData?.temps?.secondFloor ?? '',
+    thirdFloor: defaultData?.temps?.thirdFloor ?? ''
+  })
+  const [comments, setComments] = useState(defaultData?.comments ?? '')
+  const [items, setItems] = useState<ItemState[]>(() => buildInitialItems(defaultData))
+
+  const deletedPhotos = useRef<{ ids: string[]; paths: string[] }>({ ids: [], paths: [] })
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [uploadProgress, setUploadProgress] = useState<{ done: number; total: number } | null>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  // Load clients + inspectors for the dropdowns.
   useEffect(() => {
-    let isMounted = true
-
-    const loadClients = async () => {
-      try {
-        const { data, error } = await supabase
+    let mounted = true
+    ;(async () => {
+      const [{ data: clientData }, { data: inspectorData }] = await Promise.all([
+        supabase
           .from('clients')
-          .select('id, user_id, name, phone, email, created_at, updated_at, properties:properties(id, name, address, client_id)')
-          .order('name', { ascending: true })
-
-        if (!isMounted) return
-
-        if (error) {
-          console.error('Failed to load clients', error)
-          setClients([])
-          setIsAddingNewClient(true)
-          setIsAddingNewProperty(true)
-        } else {
-          const hydrated = ((data ?? []) as unknown) as ClientOption[]
-          setClients(hydrated)
-          if (hydrated.length === 0) {
-            setIsAddingNewClient(true)
-            setIsAddingNewProperty(true)
-          }
-        }
-      } catch (error) {
-        if (isMounted) {
-          console.error('Unexpected error loading clients', error)
-          setClients([])
-          setIsAddingNewClient(true)
-          setIsAddingNewProperty(true)
-        }
-      } finally {
-        if (isMounted) {
-          setIsLoadingClients(false)
-        }
-      }
-    }
-
-    loadClients()
-
+          .select('id, user_id, name, phone, email, created_at, updated_at, properties:properties(id, name, address)')
+          .order('name'),
+        supabase.from('inspectors').select('id, user_id, name, email, phone, created_at, updated_at').order('name')
+      ])
+      if (!mounted) return
+      setClients((clientData ?? []) as unknown as ClientOption[])
+      setInspectors((inspectorData ?? []) as Inspector[])
+    })()
     return () => {
-      isMounted = false
+      mounted = false
     }
   }, [supabase])
 
+  // Revoke object URLs on unmount.
   useEffect(() => {
-    let isMounted = true
-
-    const loadInspectors = async () => {
-      try {
-        const { data, error } = await supabase
-          .from('inspectors')
-          .select('id, user_id, name, email, phone, created_at, updated_at')
-          .order('name', { ascending: true })
-
-        if (!isMounted) return
-
-        if (error) {
-          console.error('Failed to load inspectors', error)
-          setInspectors([])
-          if (!selectedInspectorId) {
-            setIsAddingNewInspector(true)
-          }
-        } else {
-          const records = ((data ?? []) as unknown) as Inspector[]
-          setInspectors(records)
-
-          const trimmedDefaultName = defaultInspectorName.trim().toLowerCase()
-
-          if (records.length === 0) {
-            setIsAddingNewInspector(true)
-          } else if (selectedInspectorId) {
-            const match = records.find(entry => entry.id === selectedInspectorId)
-            if (match) {
-              setInspector(match.name ?? '')
-              setInspectorEmail(match.email ?? '')
-              setInspectorPhone(match.phone ?? '')
-              setIsAddingNewInspector(false)
-            } else if (trimmedDefaultName) {
-              const fallback = records.find(entry => (entry.name ?? '').trim().toLowerCase() === trimmedDefaultName)
-              if (fallback) {
-                setSelectedInspectorId(fallback.id)
-                setInspector(fallback.name ?? '')
-                setInspectorEmail(fallback.email ?? '')
-                setInspectorPhone(fallback.phone ?? '')
-                setIsAddingNewInspector(false)
-              } else {
-                setIsAddingNewInspector(true)
-              }
-            }
-          } else if (trimmedDefaultName) {
-            const fallback = records.find(entry => (entry.name ?? '').trim().toLowerCase() === trimmedDefaultName)
-            if (fallback) {
-              setSelectedInspectorId(fallback.id)
-              setInspector(fallback.name ?? '')
-              setInspectorEmail(fallback.email ?? '')
-              setInspectorPhone(fallback.phone ?? '')
-              setIsAddingNewInspector(false)
-            } else {
-              setIsAddingNewInspector(true)
-            }
-          } else {
-            setIsAddingNewInspector(true)
-          }
-        }
-      } catch (error) {
-        if (!isMounted) return
-        console.error('Unexpected error loading inspectors', error)
-        setInspectors([])
-        if (!selectedInspectorId) {
-          setIsAddingNewInspector(true)
-        }
-      } finally {
-        if (isMounted) {
-          setIsLoadingInspectors(false)
-        }
-      }
-    }
-
-    loadInspectors()
-
     return () => {
-      isMounted = false
-    }
-  }, [supabase, defaultInspectorName, selectedInspectorId])
-
-  const propertyLookup = useMemo(() => {
-    const map = new Map<string, Pick<Property, 'id' | 'address' | 'name'>>()
-    clients.forEach(client => {
-      (client.properties ?? []).forEach(property => {
-        map.set(property.id, property)
-      })
-    })
-    return map
-  }, [clients])
-
-  const selectedClient = useMemo(() => {
-    if (!selectedClientId) return null
-    return clients.find(client => client.id === selectedClientId) ?? null
-  }, [clients, selectedClientId])
-
-  useEffect(() => {
-    if (!selectedClient) return
-    if (selectedPropertyId) {
-      setIsAddingNewProperty(false)
-      return
-    }
-    if (selectedClient.properties.length === 1) {
-      const property = selectedClient.properties[0]
-      setSelectedPropertyId(property.id)
-      setAddress(property.address ?? '')
-      setIsAddingNewProperty(false)
-    }
-  }, [selectedClient, selectedPropertyId])
-
-  useEffect(() => {
-    if (!selectedPropertyId) return
-    const property = propertyLookup.get(selectedPropertyId)
-    if (property) {
-      setAddress(property.address ?? '')
-      setIsAddingNewProperty(false)
-    }
-  }, [selectedPropertyId, propertyLookup])
-
-  useEffect(() => {
-    // Revoke object URLs when unmounting
-    return () => {
-      items.forEach((item: ChecklistItemForm) =>
-        item.photos.forEach((photo: ChecklistPhotoDraft) => {
-          if (photo.previewUrl && photo.previewUrl.startsWith('blob:')) {
-            URL.revokeObjectURL(photo.previewUrl)
-          }
+      items.forEach(item =>
+        item.photos.forEach(photo => {
+          if (photo.previewUrl.startsWith('blob:')) URL.revokeObjectURL(photo.previewUrl)
         })
       )
     }
-  }, [items])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
-  function updateItem(id: string, patch: Partial<ChecklistItemForm>) {
-    setItems(prev => prev.map(it => it.id === id ? { ...it, ...patch } : it))
+  const selectedClient = clients.find(c => c.id === clientId) ?? null
+
+  function onSelectClient(value: string) {
+    if (value === '__new__') {
+      setClientId(null)
+      setClientName('')
+      setPhone('')
+      setEmail('')
+      setPropertyId(null)
+      setAddress('')
+      setAddingClient(true)
+      setAddingProperty(true)
+      return
+    }
+    const client = clients.find(c => c.id === value)
+    setAddingClient(false)
+    setClientId(value)
+    setClientName(client?.name ?? '')
+    setPhone(client?.phone ?? '')
+    setEmail(client?.email ?? '')
+    const props = client?.properties ?? []
+    if (props.length === 1) {
+      setPropertyId(props[0].id)
+      setAddress(props[0].address ?? '')
+      setAddingProperty(false)
+    } else {
+      setPropertyId(null)
+      setAddress('')
+      setAddingProperty(props.length === 0)
+    }
   }
 
-  function handlePhotoChange(id: string, files: FileList | null) {
-    if (!files) return
+  function onSelectProperty(value: string) {
+    if (value === '__new__') {
+      setPropertyId(null)
+      setAddress('')
+      setAddingProperty(true)
+      return
+    }
+    const property = selectedClient?.properties.find(p => p.id === value)
+    setPropertyId(value)
+    setAddress(property?.address ?? '')
+    setAddingProperty(false)
+  }
 
-    const additions: ChecklistPhotoDraft[] = Array.from(files).map(file => ({
-      id: generateLocalId(),
+  function onSelectInspector(value: string) {
+    if (value === '__new__' || value === '') {
+      setInspectorId(null)
+      setAddingInspector(true)
+      setInspectorName('')
+      setInspectorEmail('')
+      setInspectorPhone('')
+      return
+    }
+    const inspector = inspectors.find(i => i.id === value)
+    setInspectorId(value)
+    setAddingInspector(false)
+    setInspectorName(inspector?.name ?? '')
+    setInspectorEmail(inspector?.email ?? '')
+    setInspectorPhone(inspector?.phone ?? '')
+  }
+
+  function updateItem(id: string, patch: Partial<ItemState>) {
+    setItems(prev => prev.map(item => (item.uid === id ? { ...item, ...patch } : item)))
+  }
+
+  function addPhotos(id: string, files: FileList | null) {
+    if (!files || files.length === 0) return
+    const additions: PhotoDraft[] = Array.from(files).map(file => ({
+      id: uid(),
       previewUrl: URL.createObjectURL(file),
       file
     }))
-
-    updateItem(id, {
-      photos: [...(items.find(i => i.id === id)?.photos || []), ...additions]
-    })
+    setItems(prev => prev.map(item => (item.uid === id ? { ...item, photos: [...item.photos, ...additions] } : item)))
   }
 
-  function handleClientSelection(value: string) {
-    if (value === '__new__') {
-      setSelectedClientId(null)
-      setClientName('')
-      setSelectedPropertyId(null)
-      setAddress('')
-      setPhone('')
-      setEmail('')
-      setIsAddingNewClient(true)
-      setIsAddingNewProperty(true)
-      return
-    }
-
-    setSelectedClientId(value)
-    setIsAddingNewClient(false)
-
-    const client = clients.find(entry => entry.id === value)
-    if (!client) {
-      return
-    }
-
-    setClientName(client.name ?? '')
-    setPhone(client.phone ?? '')
-    setEmail(client.email ?? '')
-
-    const properties = client.properties ?? []
-    if (selectedPropertyId && properties.some(property => property.id === selectedPropertyId)) {
-      const property = properties.find(property => property.id === selectedPropertyId)
-      if (property) {
-        setAddress(property.address ?? '')
-        setIsAddingNewProperty(false)
-      }
-      return
-    }
-
-    if (properties.length === 1) {
-      const property = properties[0]
-      setSelectedPropertyId(property.id)
-      setAddress(property.address ?? '')
-      setIsAddingNewProperty(false)
-    } else {
-      setIsAddingNewProperty(properties.length === 0)
-      setSelectedPropertyId(null)
-      setAddress('')
-    }
-  }
-
-  function handlePropertySelection(value: string) {
-    if (value === '__new__') {
-      setSelectedPropertyId(null)
-      setAddress('')
-      setIsAddingNewProperty(true)
-      return
-    }
-
-    setSelectedPropertyId(value)
-    setIsAddingNewProperty(false)
-    const property = propertyLookup.get(value)
-    if (property) {
-      setAddress(property.address ?? '')
-    }
-  }
-
-  function handleInspectorSelection(value: string) {
-    if (value === '__new__') {
-      setSelectedInspectorId(null)
-      setIsAddingNewInspector(true)
-      setInspector('')
-      setInspectorEmail('')
-      setInspectorPhone('')
-      return
-    }
-
-    if (!value) {
-      setSelectedInspectorId(null)
-      setIsAddingNewInspector(true)
-      setInspector('')
-      setInspectorEmail('')
-      setInspectorPhone('')
-      return
-    }
-
-    setSelectedInspectorId(value)
-    setIsAddingNewInspector(false)
-    const record = inspectors.find(entry => entry.id === value)
-    if (record) {
-      setInspector(record.name ?? '')
-      setInspectorEmail(record.email ?? '')
-      setInspectorPhone(record.phone ?? '')
-    }
-  }
-
-  const [photosMarkedForDeletion, setPhotosMarkedForDeletion] = useState<Array<{ id: string; storagePath?: string | null }>>([])
-
-  function removePhoto(itemId: string, photo: ChecklistPhotoDraft) {
-    setItems(prev =>
-      prev.map(it =>
-        it.id === itemId
-          ? {
-              ...it,
-              photos: it.photos.filter(current => current.id !== photo.id)
-            }
-          : it
-      )
-    )
-
-    if (photo.previewUrl?.startsWith('blob:')) {
-      URL.revokeObjectURL(photo.previewUrl)
-    }
-
+  function removePhoto(itemId: string, photo: PhotoDraft) {
+    if (photo.previewUrl.startsWith('blob:')) URL.revokeObjectURL(photo.previewUrl)
     if (photo.persistedId) {
-      const persistedId = photo.persistedId
-      setPhotosMarkedForDeletion(prev => {
-        if (prev.some(entry => entry.id === persistedId)) {
-          return prev
-        }
-        return [...prev, { id: persistedId, storagePath: photo.storagePath ?? null }]
-      })
+      deletedPhotos.current.ids.push(photo.persistedId)
+      if (photo.storagePath) deletedPhotos.current.paths.push(photo.storagePath)
     }
+    setItems(prev =>
+      prev.map(item => (item.uid === itemId ? { ...item, photos: item.photos.filter(p => p.id !== photo.id) } : item))
+    )
   }
 
-  const [isSubmitting, setIsSubmitting] = useState(false)
-  const [submitError, setSubmitError] = useState<string | null>(null)
+  function bulkSet(status: ChecklistItemStatus) {
+    setItems(prev => prev.map(item => ({ ...item, status })))
+  }
+
+  const grouped = useMemo(() => {
+    const map = new Map<string, ItemState[]>()
+    items.forEach(item => {
+      const list = map.get(item.category) ?? []
+      list.push(item)
+      map.set(item.category, list)
+    })
+    const orderedKeys = [
+      ...CATEGORY_ORDER.filter(k => map.has(k)),
+      ...Array.from(map.keys()).filter(k => !CATEGORY_ORDER.includes(k as ChecklistCategory))
+    ]
+    return orderedKeys.map(key => ({ key, items: (map.get(key) ?? []).slice().sort((a, b) => a.sortOrder - b.sortOrder) }))
+  }, [items])
+
+  const completed = items.filter(i => i.status !== 'unchecked').length
+  const issues = items.filter(i => i.status === 'issue').length
 
   async function handleSubmit() {
-    const trimmedName = clientName.trim()
-    const trimmedAddress = address.trim()
-    const trimmedInspector = inspector.trim()
-  const trimmedInspectorEmail = inspectorEmail.trim()
-  const trimmedInspectorPhone = inspectorPhone.trim()
-    const trimmedPhone = phone.trim()
-    const trimmedEmail = email.trim()
-
-    if (!trimmedName || !trimmedAddress || !dateOfArrival || !trimmedInspector) {
-      setSubmitError('Please fill in all required fields')
-      return
-    }
+    setError(null)
+    if (!clientName.trim()) return setError('Please enter a client name.')
+    if (!address.trim()) return setError('Please enter a property address.')
+    if (!inspectorName.trim()) return setError('Please choose or enter an inspector.')
 
     setIsSubmitting(true)
-    setSubmitError(null)
-
-    const isEditing = Boolean(editingChecklistId)
-
-    console.debug('Saving checklist', {
-      mode: isEditing ? 'edit' : 'create',
-      clientName,
-      address,
-      dateOfArrival,
-      inspector,
-      itemCount: items.length,
-      checklistId: editingChecklistId
-    })
-
     try {
-      const { data: sessionData, error: sessionError } = await supabase.auth.getSession()
-      if (sessionError) throw sessionError
+      // Collect every new photo across all items as upload jobs.
+      const jobs: Array<{ itemIndex: number; file: File }> = []
+      items.forEach((item, itemIndex) => {
+        item.photos.forEach(photo => {
+          if (photo.file) jobs.push({ itemIndex, file: photo.file })
+        })
+      })
 
-      const userId = sessionData.session?.user.id
-      if (!userId) {
-        throw new Error('You must be signed in to submit a checklist.')
-      }
+      const uploadedPathsByItem = new Map<number, string[]>()
 
-      if (!trimmedName) {
-        throw new Error('Client name is required for this checklist.')
-      }
-      if (!trimmedAddress) {
-        throw new Error('Please provide an address for this checklist.')
-      }
+      if (jobs.length > 0) {
+        setUploadProgress({ done: 0, total: jobs.length })
 
-      let effectiveInspectorId: string | null = selectedInspectorId
-      if (trimmedInspector) {
-        const normalizedName = trimmedInspector.toLowerCase()
+        // Compress + upload each photo, with a couple of retries. Bounded
+        // concurrency keeps things fast without flooding the connection or
+        // freezing the page on a big batch of phone photos.
+        const tasks = jobs.map(job => async () => {
+          const { blob, ext } = await prepareImageForUpload(job.file)
+          const objectPath = `${uid()}.${ext}`
 
-        if (!effectiveInspectorId) {
-          const existingInspector = inspectors.find(entry => (entry.name ?? '').trim().toLowerCase() === normalizedName)
-          if (existingInspector) {
-            effectiveInspectorId = existingInspector.id
-            setSelectedInspectorId(existingInspector.id)
-            setIsAddingNewInspector(false)
-            setInspector(existingInspector.name ?? trimmedInspector)
-            setInspectorEmail(existingInspector.email ?? '')
-            setInspectorPhone(existingInspector.phone ?? '')
-          }
-        }
-
-        if (effectiveInspectorId) {
-          const currentRecord = inspectors.find(entry => entry.id === effectiveInspectorId)
-          const currentName = (currentRecord?.name ?? '').trim()
-          const currentEmail = (currentRecord?.email ?? '').trim()
-          const currentPhone = (currentRecord?.phone ?? '').trim()
-          const nextEmail = trimmedInspectorEmail
-          const nextPhone = trimmedInspectorPhone
-
-          const needsUpdate =
-            currentName !== trimmedInspector ||
-            currentEmail !== nextEmail ||
-            currentPhone !== nextPhone
-
-          if (needsUpdate) {
-            const inspectorUpdatePayload: InspectorUpdate = {
-              name: trimmedInspector,
-              email: nextEmail ? nextEmail : null,
-              phone: nextPhone ? nextPhone : null,
-              updated_at: new Date().toISOString()
+          let lastError: unknown = null
+          for (let attempt = 0; attempt < 3; attempt++) {
+            const { error: uploadError } = await supabase.storage
+              .from(CHECKLIST_PHOTO_BUCKET)
+              .upload(objectPath, blob, { cacheControl: '3600', upsert: false, contentType: blob.type || 'image/jpeg' })
+            if (!uploadError) {
+              const list = uploadedPathsByItem.get(job.itemIndex) ?? []
+              list.push(`${CHECKLIST_PHOTO_BUCKET}/${objectPath}`)
+              uploadedPathsByItem.set(job.itemIndex, list)
+              return
             }
-
-            const { data: updatedInspector, error: inspectorUpdateError } = await supabase
-              .from('inspectors')
-              .update(inspectorUpdatePayload)
-              .eq('id', effectiveInspectorId)
-              .eq('user_id', userId)
-              .select()
-              .single<Inspector>()
-
-            if (inspectorUpdateError) throw inspectorUpdateError
-
-            if (updatedInspector) {
-              setInspectors(prev => {
-                const next = prev.map(entry => entry.id === updatedInspector.id ? updatedInspector : entry)
-                return next.sort((a, b) => (a.name ?? '').localeCompare(b.name ?? ''))
-              })
-              setInspector(updatedInspector.name ?? trimmedInspector)
-              setInspectorEmail(updatedInspector.email ?? '')
-              setInspectorPhone(updatedInspector.phone ?? '')
-            }
+            lastError = uploadError
           }
-        } else {
-          const inspectorPayload: InspectorInsert = {
-            user_id: userId,
-            name: trimmedInspector,
-            email: trimmedInspectorEmail || null,
-            phone: trimmedInspectorPhone || null
-          }
+          throw new Error(`A photo failed to upload after several tries: ${lastError instanceof Error ? lastError.message : 'unknown error'}`)
+        })
 
-          const { data: insertedInspector, error: inspectorInsertError } = await supabase
-            .from('inspectors')
-            .insert([inspectorPayload])
-            .select()
-            .single<Inspector>()
-
-          if (inspectorInsertError) {
-            if (typeof inspectorInsertError.message === 'string' && inspectorInsertError.message.toLowerCase().includes('inspectors')) {
-              throw new Error('Unable to save inspector. Ensure the `inspectors` table exists and the migration SQL has been executed.')
-            }
-            throw inspectorInsertError
-          }
-
-          if (insertedInspector) {
-            effectiveInspectorId = insertedInspector.id
-            setInspectors(prev => [...prev, insertedInspector].sort((a, b) => (a.name ?? '').localeCompare(b.name ?? '')))
-            setSelectedInspectorId(insertedInspector.id)
-            setIsAddingNewInspector(false)
-            setInspector(insertedInspector.name ?? trimmedInspector)
-            setInspectorEmail(insertedInspector.email ?? trimmedInspectorEmail)
-            setInspectorPhone(insertedInspector.phone ?? trimmedInspectorPhone)
-          }
-        }
+        await runWithConcurrency(tasks, 4, (done, total) => setUploadProgress({ done, total }))
+        setUploadProgress(null)
       }
 
-      let effectiveClientId = selectedClientId
-      let resolvedClient: Client | null = null
+      const itemsPayload: SaveChecklistItem[] = items.map((item, itemIndex) => ({
+        itemKey: item.itemKey,
+        category: item.category,
+        label: item.label,
+        status: item.status,
+        notes: item.notes,
+        sortOrder: item.sortOrder,
+        persistedId: item.persistedId,
+        newPhotoPaths: uploadedPathsByItem.get(itemIndex) ?? []
+      }))
 
-      if (effectiveClientId) {
-        const clientPayload: ClientUpdate = {
-          name: trimmedName,
-          phone: trimmedPhone || null,
-          email: trimmedEmail || null,
-          updated_at: new Date().toISOString()
-        }
-
-        const { data: updatedClient, error: clientUpdateError } = await supabase
-          .from('clients')
-          .update(clientPayload)
-          .eq('id', effectiveClientId)
-          .eq('user_id', userId)
-          .select()
-          .maybeSingle<Client>()
-
-        if (clientUpdateError) throw clientUpdateError
-
-        if (updatedClient) {
-          resolvedClient = updatedClient
-          console.debug('Updated client record', { id: updatedClient.id })
-        } else {
-          const { data: existingClient, error: clientLookupError } = await supabase
-            .from('clients')
-            .select('*')
-            .eq('id', effectiveClientId)
-            .eq('user_id', userId)
-            .maybeSingle<Client>()
-
-          if (clientLookupError) throw clientLookupError
-          if (!existingClient) {
-            throw new Error('Selected client could not be found. Please refresh and try again.')
-          }
-
-          resolvedClient = existingClient
-        }
-      } else {
-        const clientPayload: ClientInsert = {
-          user_id: userId,
-          name: trimmedName,
-          phone: trimmedPhone || null,
-          email: trimmedEmail || null
-        }
-
-        const { data: insertedClient, error: clientInsertError } = await supabase
-          .from('clients')
-          .insert([clientPayload])
-          .select()
-          .single<Client>()
-
-        if (clientInsertError) throw clientInsertError
-
-        resolvedClient = insertedClient
-        effectiveClientId = insertedClient.id
-        setSelectedClientId(insertedClient.id)
-        console.debug('Created new client record', { id: insertedClient.id })
-      }
-
-      if (!resolvedClient) {
-        throw new Error('Failed to resolve the client record.')
-      }
-
-    setClientName(resolvedClient.name)
-    setSelectedClientId(resolvedClient.id)
-  setPhone(resolvedClient.phone ?? '')
-  setEmail(resolvedClient.email ?? '')
-    setIsAddingNewClient(false)
-
-      let effectivePropertyId = selectedPropertyId
-      let resolvedProperty: Property | null = null
-
-      if (effectivePropertyId) {
-        const propertyPayload: PropertyUpdate = {
-          client_id: resolvedClient.id,
-          name: trimmedAddress || trimmedName,
-          address: trimmedAddress || null,
-          updated_at: new Date().toISOString()
-        }
-
-        const { data: updatedProperty, error: propertyUpdateError } = await supabase
-          .from('properties')
-          .update(propertyPayload)
-          .eq('id', effectivePropertyId)
-          .eq('user_id', userId)
-          .select()
-          .maybeSingle<Property>()
-
-        if (propertyUpdateError) throw propertyUpdateError
-
-        if (updatedProperty) {
-          resolvedProperty = updatedProperty
-          console.debug('Updated property record', { id: updatedProperty.id })
-        } else {
-          const { data: existingProperty, error: propertyLookupError } = await supabase
-            .from('properties')
-            .select('*')
-            .eq('id', effectivePropertyId)
-            .eq('user_id', userId)
-            .maybeSingle<Property>()
-
-          if (propertyLookupError) throw propertyLookupError
-          if (!existingProperty) {
-            throw new Error('Selected property could not be found. Please refresh and try again.')
-          }
-
-          resolvedProperty = existingProperty
-        }
-      }
-
-      if (!resolvedProperty) {
-        const { data: existingProperty, error: propertyLookupError } = await supabase
-          .from('properties')
-          .select('*')
-          .eq('user_id', userId)
-          .eq('client_id', resolvedClient.id)
-          .eq('address', trimmedAddress)
-          .maybeSingle<Property>()
-
-        if (propertyLookupError) throw propertyLookupError
-
-        if (existingProperty) {
-          resolvedProperty = existingProperty
-          effectivePropertyId = existingProperty.id
-          console.debug('Reusing property record', { id: existingProperty.id })
-        }
-      }
-
-      if (!resolvedProperty) {
-        const propertyPayload: PropertyInsert = {
-          user_id: userId,
-          client_id: resolvedClient.id,
-          name: trimmedAddress || trimmedName,
-          address: trimmedAddress || null
-        }
-
-        const { data: insertedProperty, error: propertyInsertError } = await supabase
-          .from('properties')
-          .insert([propertyPayload])
-          .select()
-          .single<Property>()
-
-        if (propertyInsertError) throw propertyInsertError
-        if (!insertedProperty) throw new Error('Failed to create property record')
-
-        resolvedProperty = insertedProperty
-        effectivePropertyId = insertedProperty.id
-        console.debug('Created new property record', { id: insertedProperty.id })
-      }
-
-    setSelectedPropertyId(resolvedProperty?.id ?? null)
-    setAddress(resolvedProperty?.address ?? trimmedAddress)
-    setIsAddingNewProperty(false)
-
-      // 2. Create or update the checklist entry
-      const itemSummary = items
-        .map(item => `${item.label}: ${item.status.toUpperCase()}${item.notes ? ` - ${item.notes}` : ''}`)
-        .join('\n')
-
-      const resolvedPropertyId = resolvedProperty?.id ?? effectivePropertyId ?? null
-
-      const notesPayload = JSON.stringify({
-        clientId: resolvedClient.id,
-        propertyId: resolvedPropertyId,
-        clientName: trimmedName,
-        address: trimmedAddress,
-        inspector: trimmedInspector,
-        inspectorId: effectiveInspectorId ?? null,
-          inspectorEmail: trimmedInspectorEmail || null,
-          inspectorPhone: trimmedInspectorPhone || null,
-        phone: trimmedPhone || null,
-        email: trimmedEmail || null,
-        garageTemp: garageTemp.trim() || null,
-        mainFloorTemp: mainFloorTemp.trim() || null,
-        secondFloorTemp: secondFloorTemp.trim() || null,
-        thirdFloorTemp: thirdFloorTemp.trim() || null,
-        temperatures: {
-          garage: garageTemp.trim() || null,
-          mainFloor: mainFloorTemp.trim() || null,
-          secondFloor: secondFloorTemp.trim() || null,
-          thirdFloor: thirdFloorTemp.trim() || null
+      const result = await saveChecklist({
+        checklistId: defaultData?.checklistId ?? null,
+        clientId,
+        clientName,
+        clientPhone: phone,
+        clientEmail: email,
+        propertyId,
+        address,
+        inspectorId,
+        inspectorName,
+        inspectorEmail,
+        inspectorPhone,
+        visitDate: dateOfArrival || null,
+        comments,
+        temps: {
+          garage: temps.garage,
+          mainFloor: temps.mainFloor,
+          secondFloor: temps.secondFloor,
+          thirdFloor: temps.thirdFloor
         },
-        comments: comments?.trim() || null,
-        itemSummary
+        items: itemsPayload,
+        deletedPhotoIds: deletedPhotos.current.ids,
+        deletedPhotoPaths: deletedPhotos.current.paths
       })
 
-      let currentChecklist: Checklist
-
-      if (isEditing && editingChecklistId) {
-        const checklistUpdate: ChecklistUpdate = {
-          property_id: resolvedPropertyId,
-          visit_date: dateOfArrival || null,
-          notes: notesPayload,
-          updated_at: new Date().toISOString()
-        }
-
-        const { data: updatedChecklist, error: checklistUpdateError } = await supabase
-          .from('checklists')
-          .update(checklistUpdate)
-          .eq('id', editingChecklistId)
-          .eq('user_id', userId)
-          .select()
-          .single<Checklist>()
-
-        if (checklistUpdateError) throw checklistUpdateError
-        currentChecklist = updatedChecklist
-        setEditingChecklistId(updatedChecklist.id)
-        console.debug('Updated checklist', { id: updatedChecklist.id })
-      } else {
-        const checklistInsert: ChecklistInsert = {
-          property_id: resolvedPropertyId,
-          user_id: userId,
-          visit_date: dateOfArrival || null,
-          notes: notesPayload
-        }
-
-        const { data: createdChecklist, error: checklistError } = await supabase
-          .from('checklists')
-          .insert([checklistInsert])
-          .select()
-          .single<Checklist>()
-
-        if (checklistError) throw checklistError
-        if (!createdChecklist) throw new Error('Failed to create checklist')
-
-        currentChecklist = createdChecklist
-        console.debug('Created checklist', { id: createdChecklist.id })
-      }
-
-      // 3. Persist individual checklist items
-  const itemIdMap = new Map<string, string>()
-  const checklistItemsPayload: ChecklistItemInsert[] = items.map((item: ChecklistItemForm) => {
-        const resolvedId = item.persistedId ?? generateLocalId()
-        itemIdMap.set(item.id, resolvedId)
-        return {
-          id: resolvedId,
-          checklist_id: currentChecklist.id,
-          category: item.category,
-          item_text: item.label,
-          status: item.status,
-          notes: item.notes?.trim() || null
-        }
-      })
-
-      if (isEditing && editingChecklistId) {
-        if (checklistItemsPayload.length > 0) {
-          const { error: checklistItemsError } = await supabase
-            .from('checklist_items')
-            .upsert(checklistItemsPayload, { onConflict: 'id' })
-
-          if (checklistItemsError) {
-            throw checklistItemsError
-          }
-        }
-
-      } else {
-        if (checklistItemsPayload.length > 0) {
-          const { error: checklistItemsError } = await supabase
-            .from('checklist_items')
-            .insert(checklistItemsPayload)
-
-          if (checklistItemsError) {
-            // best effort cleanup to avoid leaving an empty checklist behind
-            await supabase.from('checklists').delete().eq('id', currentChecklist.id)
-            throw checklistItemsError
-          }
-
-          console.debug('Persisted checklist items', { count: checklistItemsPayload.length })
-        }
-      }
-
-      const bucketName = process.env.NEXT_PUBLIC_SUPABASE_CHECKLIST_BUCKET ?? 'checklist-photos'
-
-      // Handle photo deletions for edited checklists
-      if (isEditing && photosMarkedForDeletion.length > 0) {
-        const idsToDelete = photosMarkedForDeletion.map(photo => photo.id)
-
-        const { error: deletePhotosError } = await supabase
-          .from('checklist_photos')
-          .delete()
-          .in('id', idsToDelete)
-
-        if (deletePhotosError) {
-          throw deletePhotosError
-        }
-
-        const removalsByBucket = new Map<string, string[]>()
-        photosMarkedForDeletion.forEach(photo => {
-          if (!photo.storagePath) return
-          if (photo.storagePath.includes('://')) return
-          const [bucket, ...objectParts] = photo.storagePath.split('/')
-          if (!bucket || objectParts.length === 0) return
-          const objectPath = objectParts.join('/')
-          const existing = removalsByBucket.get(bucket)
-          if (existing) {
-            existing.push(objectPath)
-          } else {
-            removalsByBucket.set(bucket, [objectPath])
-          }
-        })
-
-        for (const [bucket, objectPaths] of removalsByBucket) {
-          const { error: storageRemoveError } = await supabase.storage.from(bucket).remove(objectPaths)
-          if (storageRemoveError) {
-            console.warn('Failed to remove checklist photos from storage', { bucket, error: storageRemoveError })
-          }
-        }
-      }
-
-      // Upload new photos and create checklist_photo rows
-      const photoUploads: Array<{ checklistItemId: string; objectPath: string; file: File }> = []
-
-      items.forEach((item: ChecklistItemForm) => {
-        const persistedId = itemIdMap.get(item.id) ?? item.persistedId
-        if (!persistedId) return
-
-        item.photos.forEach((photo: ChecklistPhotoDraft) => {
-          if (photo.file) {
-            const extension = photo.file.name.split('.').pop()?.toLowerCase() || 'jpg'
-            const objectPath = `${currentChecklist.id}/${persistedId}/${photo.id}.${extension}`
-            photoUploads.push({ checklistItemId: persistedId, objectPath, file: photo.file })
-          }
-        })
-      })
-
-      const insertedPhotoRecords: Array<{ checklist_item_id: string; storage_path: string }> = []
-
-      for (const upload of photoUploads) {
-        const { error: uploadError } = await supabase.storage
-          .from(bucketName)
-          .upload(upload.objectPath, upload.file, { cacheControl: '3600', upsert: false })
-
-        if (uploadError) {
-          throw uploadError
-        }
-
-        insertedPhotoRecords.push({
-          checklist_item_id: upload.checklistItemId,
-          storage_path: `${bucketName}/${upload.objectPath}`
-        })
-      }
-
-      if (insertedPhotoRecords.length > 0) {
-        const { error: photoInsertError } = await supabase
-          .from('checklist_photos')
-          .insert(insertedPhotoRecords)
-
-        if (photoInsertError) {
-          // Try to clean up uploaded files since DB rows failed
-          const objectPaths = insertedPhotoRecords.map(record => record.storage_path.split('/').slice(1).join('/'))
-          await supabase.storage.from(bucketName).remove(objectPaths)
-          throw photoInsertError
-        }
-      }
-
-      setPhotosMarkedForDeletion([])
-
-      setEditingChecklistId(currentChecklist.id)
-
-      router.push(`/checklists/${currentChecklist.id}`)
-      return
-    } catch (error) {
-      console.error('Submission error:', error)
-
-      const extractedMessage = (() => {
-        if (error instanceof Error) return error.message
-        if (error && typeof error === 'object' && 'message' in error && error.message) {
-          return String(error.message)
-        }
-        return 'Failed to submit checklist'
-      })()
-
-      setSubmitError(extractedMessage)
-    } finally {
+      if (!result.ok) throw new Error(result.error)
+      router.push(`/checklists/${result.checklistId}`)
+      router.refresh()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to save checklist.')
+      setUploadProgress(null)
       setIsSubmitting(false)
     }
   }
 
-  return (
-    <div className="p-4 md:p-6">
-      <div className="max-w-5xl mx-auto space-y-6">
-        <header className="bg-white p-4 rounded-2xl border border-gray-200 shadow-sm">
-          <h1 className="text-2xl md:text-3xl font-bold">Basic Home Watch Checklist</h1>
-          <p className="text-sm text-gray-600 mt-1">PROPERTY INSPECTIONS &amp; SERVICES — Phone: {COMPANY_PHONE} — Email: {COMPANY_PRIMARY_EMAIL}</p>
-        </header>
+  const inputClass =
+    'w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500'
+  const labelClass = 'block text-sm font-medium text-gray-700'
 
-        <section className="bg-white p-4 md:p-6 rounded-2xl border border-gray-200 shadow-sm grid grid-cols-1 md:grid-cols-2 gap-4">
+  return (
+    <div className="mx-auto max-w-4xl space-y-6 p-4 md:p-6">
+      <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">{isEditing ? 'Edit checklist' : 'New home watch checklist'}</h1>
+          <p className="mt-1 text-sm text-gray-500">{COMPANY.name} · {COMPANY.phone}</p>
+        </div>
+        <div className="flex items-center gap-3 text-sm">
+          <span className="rounded-full border border-gray-200 bg-white px-3 py-1 text-gray-700">{completed}/{items.length} done</span>
+          {issues > 0 && <span className="rounded-full border border-red-200 bg-red-50 px-3 py-1 text-red-700">{issues} issue{issues === 1 ? '' : 's'}</span>}
+        </div>
+      </header>
+
+      {/* Visit details */}
+      <section className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm md:p-6">
+        <h2 className="text-lg font-semibold text-gray-900">Visit details</h2>
+        <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
           <div>
-            <label className="block text-sm font-medium text-gray-700">Client</label>
-            <div className="mt-1 space-y-2">
-              <select
-                className="w-full border border-gray-300 rounded-lg p-2 text-sm"
-                value={selectedClientId ?? ''}
-                onChange={e => handleClientSelection(e.target.value)}
-                disabled={isLoadingClients && clients.length === 0}
-              >
-                <option value="">
-                  {isLoadingClients ? 'Loading clients...' : clients.length > 0 ? 'Select a client' : 'Select a client (or add new)'}
-                </option>
-                {clients.map(client => (
-                  <option key={client.id} value={client.id}>{client.name}</option>
-                ))}
-                <option value="__new__">+ Add new client</option>
-              </select>
-              {isAddingNewClient && (
-                <input
-                  className="w-full border border-gray-300 rounded-lg p-2 text-sm"
-                  placeholder="Client name"
-                  value={clientName}
-                  onChange={e => setClientName(e.target.value)}
-                />
-              )}
-            </div>
-            {selectedClient && selectedClient.properties.length > 1 && (
-              <p className="mt-2 text-xs text-gray-500">This client has multiple properties. Choose one below to autofill the address.</p>
+            <label className={labelClass}>Client</label>
+            <select className={`mt-1 ${inputClass}`} value={addingClient ? '__new__' : clientId ?? ''} onChange={e => onSelectClient(e.target.value)}>
+              <option value="">Select a client…</option>
+              {clients.map(c => (
+                <option key={c.id} value={c.id}>{c.name}</option>
+              ))}
+              <option value="__new__">+ Add new client</option>
+            </select>
+            {addingClient && (
+              <input className={`mt-2 ${inputClass}`} placeholder="Client name" value={clientName} onChange={e => setClientName(e.target.value)} />
             )}
           </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700">Property Address</label>
-            <div className="mt-1 space-y-2">
-              <select
-                className="w-full border border-gray-300 rounded-lg p-2 text-sm"
-                value={selectedPropertyId ?? ''}
-                onChange={e => handlePropertySelection(e.target.value)}
-                disabled={isLoadingClients}
-              >
-                <option value="">
-                  {!selectedClientId
-                    ? 'Select a client first'
-                    : selectedClient && selectedClient.properties.length > 0
-                      ? 'Select an address'
-                      : 'No saved addresses yet'}
-                </option>
-                {(selectedClient?.properties ?? []).map(property => (
-                  <option key={property.id} value={property.id}>
-                    {property.address || property.name || 'Unnamed address'}
-                  </option>
-                ))}
-                {selectedClientId && <option value="__new__">+ Add new address</option>}
-              </select>
-              {isAddingNewProperty && (
-                <input
-                  className="w-full border border-gray-300 rounded-lg p-2 text-sm"
-                  placeholder="Street address"
-                  value={address}
-                  onChange={e => setAddress(e.target.value)}
-                />
-              )}
-            </div>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700">Date of Arrival</label>
-            <input type="date" className="mt-1 w-full border border-gray-300 rounded-lg p-2 text-sm" value={dateOfArrival} onChange={e => setDateOfArrival(e.target.value)} />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700">Inspector</label>
-            <div className="mt-1 space-y-2">
-              <select
-                className="w-full border border-gray-300 rounded-lg p-2 text-sm"
-                value={isAddingNewInspector ? '__new__' : (selectedInspectorId ?? '')}
-                onChange={e => handleInspectorSelection(e.target.value)}
-                disabled={isLoadingInspectors && inspectors.length === 0}
-              >
-                <option value="">
-                  {isLoadingInspectors
-                    ? 'Loading inspectors...'
-                    : inspectors.length > 0
-                      ? 'Select an inspector'
-                      : 'Select an inspector (or add new)'}
-                </option>
-                {inspectors.map(entry => (
-                  <option key={entry.id} value={entry.id}>
-                    {entry.name}
-                  </option>
-                ))}
-                <option value="__new__">+ Add new inspector</option>
-              </select>
-              {(isAddingNewInspector || inspectors.length === 0) && (
-                <input
-                  className="w-full border border-gray-300 rounded-lg p-2 text-sm"
-                  placeholder="Inspector name"
-                  value={inspector}
-                  onChange={e => setInspector(e.target.value)}
-                />
-              )}
-              <input
-                className="w-full border border-gray-300 rounded-lg p-2 text-sm"
-                type="email"
-                placeholder="Inspector email"
-                value={inspectorEmail}
-                onChange={e => setInspectorEmail(e.target.value)}
-              />
-              <input
-                className="w-full border border-gray-300 rounded-lg p-2 text-sm"
-                placeholder="Inspector phone"
-                value={inspectorPhone}
-                onChange={e => setInspectorPhone(e.target.value)}
-              />
-            </div>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700">Client phone</label>
-            <input className="mt-1 w-full border border-gray-300 rounded-lg p-2 text-sm" value={phone} onChange={e => setPhone(e.target.value)} placeholder="Client phone" />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700">Client email</label>
-            <input type="email" className="mt-1 w-full border border-gray-300 rounded-lg p-2 text-sm" value={email} onChange={e => setEmail(e.target.value)} placeholder="client@example.com" />
-          </div>
-        </section>
 
-        <section className="bg-white p-4 md:p-6 rounded-2xl border border-gray-200 shadow-sm">
-          <h3 className="font-semibold mb-2 text-lg">Interior Temperature Levels</h3>
-          <p className="text-sm text-gray-600 mb-4">Record temperature readings for each zone to mirror the checklist rows.</p>
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-            <div>
-              <label className="block text-sm font-medium text-gray-700">Garage / Storage</label>
-              <input className="mt-1 w-full border border-gray-300 rounded-lg p-2 text-sm" value={garageTemp} onChange={e => setGarageTemp(e.target.value)} placeholder="e.g. 78°F" />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700">Main Floor</label>
-              <input className="mt-1 w-full border border-gray-300 rounded-lg p-2 text-sm" value={mainFloorTemp} onChange={e => setMainFloorTemp(e.target.value)} placeholder="e.g. 76°F" />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700">2nd Floor / 2nd Zone</label>
-              <input className="mt-1 w-full border border-gray-300 rounded-lg p-2 text-sm" value={secondFloorTemp} onChange={e => setSecondFloorTemp(e.target.value)} placeholder="e.g. 74°F" />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700">3rd Floor</label>
-              <input className="mt-1 w-full border border-gray-300 rounded-lg p-2 text-sm" value={thirdFloorTemp} onChange={e => setThirdFloorTemp(e.target.value)} placeholder="e.g. 72°F" />
-            </div>
+          <div>
+            <label className={labelClass}>Property address</label>
+            <select
+              className={`mt-1 ${inputClass}`}
+              value={addingProperty ? '__new__' : propertyId ?? ''}
+              onChange={e => onSelectProperty(e.target.value)}
+              disabled={!addingClient && !clientId}
+            >
+              <option value="">{clientId || addingClient ? 'Select an address…' : 'Choose a client first'}</option>
+              {(selectedClient?.properties ?? []).map(p => (
+                <option key={p.id} value={p.id}>{p.address || p.name}</option>
+              ))}
+              {(clientId || addingClient) && <option value="__new__">+ Add new address</option>}
+            </select>
+            {addingProperty && (
+              <input className={`mt-2 ${inputClass}`} placeholder="123 Main St, Naples FL" value={address} onChange={e => setAddress(e.target.value)} />
+            )}
           </div>
-        </section>
 
-        <section className="bg-white p-4 md:p-6 rounded-2xl border border-gray-200 shadow-sm">
-          <h2 className="font-semibold mb-2 text-lg">Exterior / Interior Checklist</h2>
-          <p className="text-sm text-gray-600 mb-4">Visual review and ensure mechanicals are in working order. For each item, choose Done, NA or Issue and add notes or photos if needed.</p>
+          <div>
+            <label className={labelClass}>Client phone</label>
+            <input className={`mt-1 ${inputClass}`} value={phone} onChange={e => setPhone(e.target.value)} placeholder="239-555-0123" />
+          </div>
+          <div>
+            <label className={labelClass}>Client email</label>
+            <input type="email" className={`mt-1 ${inputClass}`} value={email} onChange={e => setEmail(e.target.value)} placeholder="client@example.com" />
+          </div>
 
-          <div className="space-y-4">
-            {items.map((item: ChecklistItemForm) => (
-              <div key={item.id} className="border border-gray-100 rounded-lg p-3 bg-white">
-                <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-3">
-                  <div className="flex-1">
-                    <p className="text-sm md:text-base font-medium text-gray-800">{item.label}</p>
+          <div>
+            <label className={labelClass}>Visit date</label>
+            <input type="date" className={`mt-1 ${inputClass}`} value={dateOfArrival} onChange={e => setDateOfArrival(e.target.value)} />
+          </div>
+          <div>
+            <label className={labelClass}>Inspector</label>
+            <select className={`mt-1 ${inputClass}`} value={addingInspector ? '__new__' : inspectorId ?? ''} onChange={e => onSelectInspector(e.target.value)}>
+              <option value="">Select an inspector…</option>
+              {inspectors.map(i => (
+                <option key={i.id} value={i.id}>{i.name}</option>
+              ))}
+              <option value="__new__">+ Add new inspector</option>
+            </select>
+            {addingInspector && (
+              <input className={`mt-2 ${inputClass}`} placeholder="Inspector name" value={inspectorName} onChange={e => setInspectorName(e.target.value)} />
+            )}
+          </div>
+        </div>
+      </section>
+
+      {/* Temperatures */}
+      <section className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm md:p-6">
+        <h2 className="text-lg font-semibold text-gray-900">Interior temperatures</h2>
+        <p className="mt-1 text-sm text-gray-500">Optional — record readings for any zone you check.</p>
+        <div className="mt-4 grid grid-cols-2 gap-4 md:grid-cols-4">
+          {([
+            ['garage', 'Garage / Storage'],
+            ['mainFloor', 'Main floor'],
+            ['secondFloor', '2nd floor'],
+            ['thirdFloor', '3rd floor']
+          ] as const).map(([key, label]) => (
+            <div key={key}>
+              <label className={labelClass}>{label}</label>
+              <input className={`mt-1 ${inputClass}`} value={temps[key]} onChange={e => setTemps(prev => ({ ...prev, [key]: e.target.value }))} placeholder="78°F" />
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* Checklist items */}
+      <section className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm md:p-6">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <h2 className="text-lg font-semibold text-gray-900">Inspection checklist</h2>
+          <div className="flex items-center gap-2 text-xs">
+            <span className="text-gray-500">Mark all:</span>
+            <button type="button" onClick={() => bulkSet('done')} className="rounded-md border border-green-200 bg-green-50 px-2 py-1 font-medium text-green-700 hover:bg-green-100">Done</button>
+            <button type="button" onClick={() => bulkSet('unchecked')} className="rounded-md border border-gray-200 bg-gray-50 px-2 py-1 font-medium text-gray-600 hover:bg-gray-100">Reset</button>
+          </div>
+        </div>
+
+        <div className="mt-4 space-y-6">
+          {grouped.map(group => (
+            <div key={group.key}>
+              <h3 className="mb-2 text-sm font-semibold uppercase tracking-wide text-gray-500">{categoryLabel(group.key)}</h3>
+              <div className="space-y-3">
+                {group.items.map(item => (
+                  <div key={item.uid} className={`rounded-xl border p-3 ${item.status === 'issue' ? 'border-red-200 bg-red-50/40' : 'border-gray-100 bg-white'}`}>
+                    <p className="text-sm font-medium text-gray-800">{item.label}</p>
                     <div className="mt-2 flex flex-wrap gap-2">
-                      <button
-                        type="button"
-                        onClick={() => updateItem(item.id, { status: 'done' })}
-                        className={`px-3 py-1 text-sm rounded-lg border ${item.status === 'done' ? 'bg-green-50 border-green-300 text-green-800' : 'bg-white border-gray-200 text-gray-700'}`}>
-                        Done
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => updateItem(item.id, { status: 'na' })}
-                        className={`px-3 py-1 text-sm rounded-lg border ${item.status === 'na' ? 'bg-yellow-50 border-yellow-300 text-yellow-800' : 'bg-white border-gray-200 text-gray-700'}`}>
-                        NA
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => updateItem(item.id, { status: 'issue' })}
-                        className={`px-3 py-1 text-sm rounded-lg border ${item.status === 'issue' ? 'bg-red-50 border-red-300 text-red-800' : 'bg-white border-gray-200 text-gray-700'}`}>
-                        Issue
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => updateItem(item.id, { status: 'unchecked' })}
-                        className={`px-3 py-1 text-sm rounded-lg border ${item.status === 'unchecked' ? 'bg-gray-50 border-gray-300 text-gray-700' : 'bg-white border-gray-200 text-gray-700'}`}>
-                        Unchecked
-                      </button>
+                      {STATUS_BUTTONS.map(btn => (
+                        <button
+                          key={btn.value}
+                          type="button"
+                          onClick={() => updateItem(item.uid, { status: btn.value })}
+                          className={`rounded-lg border px-3 py-1 text-sm font-medium transition ${
+                            item.status === btn.value ? btn.active : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50'
+                          }`}
+                        >
+                          {btn.label}
+                        </button>
+                      ))}
                     </div>
-
-                    <textarea placeholder="Notes for this item" value={item.notes || ''} onChange={e => updateItem(item.id, { notes: e.target.value })} className="mt-3 w-full border border-gray-200 rounded-lg p-2 text-sm resize-y" />
-                  </div>
-
-                  <div className="w-full md:w-52 flex-shrink-0">
-                    <label className="block text-sm font-medium text-gray-700">Photos</label>
-                    <div className="mt-2 flex items-center gap-2">
-                      <label className="inline-flex items-center px-3 py-1 rounded-md bg-white border border-gray-200 text-sm cursor-pointer">
-                        Take Photo
-                        <input hidden type="file" accept="image/*" capture="environment" onChange={e => handlePhotoChange(item.id, e.target.files)} />
+                    {(item.status === 'issue' || item.notes || item.photos.length > 0) && (
+                      <textarea
+                        value={item.notes}
+                        onChange={e => updateItem(item.uid, { notes: e.target.value })}
+                        placeholder={item.status === 'issue' ? 'Describe the issue…' : 'Notes (optional)'}
+                        className="mt-3 w-full resize-y rounded-lg border border-gray-200 p-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500"
+                        rows={2}
+                      />
+                    )}
+                    <div className="mt-2 flex flex-wrap items-center gap-2">
+                      <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50">
+                        <CameraIcon className="h-4 w-4" /> Add photo
+                        <input hidden type="file" accept="image/*" multiple onChange={e => addPhotos(item.uid, e.target.files)} />
                       </label>
-                      <label className="inline-flex items-center px-3 py-1 rounded-md bg-white border border-gray-200 text-sm cursor-pointer">
-                        Choose from Library
-                        <input hidden type="file" accept="image/*" multiple onChange={e => handlePhotoChange(item.id, e.target.files)} />
-                      </label>
-                    </div>
-                    <div className="mt-2 grid grid-cols-3 gap-2">
-                      {(item.photos || []).map((photo: ChecklistPhotoDraft) => (
+                      {item.notes === '' && item.status !== 'issue' && (
+                        <button type="button" onClick={() => updateItem(item.uid, { notes: ' ' })} className="text-xs text-primary-600 hover:underline">
+                          + Add note
+                        </button>
+                      )}
+                      {item.photos.map(photo => (
                         <div key={photo.id} className="relative">
-                          <Image
-                            src={photo.previewUrl}
-                            alt="Checklist item preview"
-                            width={160}
-                            height={160}
-                            unoptimized
-                            className="w-full h-20 md:h-24 object-cover rounded-md border"
-                          />
-                          <button onClick={() => removePhoto(item.id, photo)} className="absolute -top-1 -right-1 bg-red-600 text-white rounded-full w-6 h-6 text-xs">x</button>
+                          <Image src={photo.previewUrl} alt="" width={64} height={64} unoptimized className="h-16 w-16 rounded-md border object-cover" />
+                          <button
+                            type="button"
+                            onClick={() => removePhoto(item.uid, photo)}
+                            className="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-red-600 text-xs text-white"
+                            aria-label="Remove photo"
+                          >
+                            ×
+                          </button>
                         </div>
                       ))}
                     </div>
                   </div>
-                </div>
+                ))}
               </div>
-            ))}
-          </div>
-        </section>
-
-        <section className="bg-white p-4 md:p-6 rounded-2xl border border-gray-200 shadow-sm space-y-3">
-          <div>
-            <h3 className="font-semibold text-lg">Comments and Photos</h3>
-            <p className="text-xs text-gray-500">PROPERTY INSPECTIONS &amp; SERVICES — Phone: {COMPANY_PHONE} — Email: {COMPANY_SECONDARY_EMAIL}</p>
-          </div>
-          <textarea placeholder="Add any additional observations, follow-up tasks, or photo references" value={comments} onChange={e => setComments(e.target.value)} className="w-full border border-gray-200 rounded-lg p-2 h-32 text-sm resize-y" />
-        </section>
-
-        <div className="space-y-4">
-          {submitError && (
-            <div className="p-4 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
-              {submitError}
             </div>
-          )}
-          <div className="flex flex-col gap-3 sm:flex-row sm:justify-end">
-            <button
-              onClick={handleSubmit}
-              disabled={isSubmitting}
-              className="px-4 py-2 font-semibold text-white bg-primary-700 rounded-md text-sm hover:bg-primary-800 disabled:bg-primary-400"
-            >
-              {isSubmitting ? 'Saving...' : submitLabel}
-            </button>
-          </div>
+          ))}
         </div>
+      </section>
+
+      {/* Comments */}
+      <section className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm md:p-6">
+        <h2 className="text-lg font-semibold text-gray-900">Summary comments</h2>
+        <textarea
+          value={comments}
+          onChange={e => setComments(e.target.value)}
+          placeholder="Overall observations, follow-up tasks, anything the homeowner should know…"
+          className="mt-3 h-28 w-full resize-y rounded-lg border border-gray-200 p-3 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500"
+        />
+      </section>
+
+      {error && <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div>}
+
+      <div className="sticky bottom-0 flex flex-col gap-3 border-t border-gray-200 bg-gray-50/95 py-4 backdrop-blur sm:flex-row sm:justify-end">
+        <Link href={isEditing ? `/checklists/${defaultData?.checklistId}` : '/dashboard'} className="inline-flex items-center justify-center rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50">
+          Cancel
+        </Link>
+        <button
+          type="button"
+          onClick={handleSubmit}
+          disabled={isSubmitting}
+          className="inline-flex items-center justify-center rounded-lg bg-primary-700 px-6 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-primary-800 disabled:cursor-not-allowed disabled:bg-primary-400"
+        >
+          {uploadProgress
+            ? `Uploading photos ${uploadProgress.done}/${uploadProgress.total}…`
+            : isSubmitting
+              ? 'Saving…'
+              : isEditing
+                ? 'Update checklist'
+                : 'Save checklist'}
+        </button>
       </div>
     </div>
   )

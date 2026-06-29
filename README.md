@@ -1,133 +1,122 @@
-# HomeWatch CRM – Residential Service Operations
+# 239 Home Services — Home Watch CRM
 
-HomeWatch CRM is a full-stack operations hub designed for residential maintenance and home-watch companies. It centralizes client information, properties, service requests, scheduling, and expenses so the team can manage every visit from a single place.
+An internal tool for a residential **home-watch** company. Inspectors visit vacant /
+seasonal homes, complete a standardized inspection checklist (with photos, notes, and
+temperature readings), and email the homeowner a polished PDF report. The team gets a
+dashboard of recent visits and which reports still need to be sent.
 
-This version of the app powers an internal workflow used to prep, schedule, and document recurring property check-ins, while keeping accounting and job status synchronized across teams.
-
----
-
-## Highlights
-
-- **Real-time Dashboard** – Track upcoming visits, outstanding quotes, and financial health with live metrics and charts.
-- **Client + Property Management** – Store client profiles, manage multiple addresses per client, and capture service history per property.
-- **Job Lifecycle Tracking** – Create work orders, assign technicians, progress jobs through custom statuses, and push scheduled visits to shared sheets.
-- **Quotes & Invoicing** – Generate and review service quotes, record approvals, and stay on top of receivables and payouts.
-- **Expense Logging** – Capture line-item expenses directly in the CRM to maintain accurate profit tracking.
-- **Authentication & Access Control** – Supabase Auth keeps data protected while enabling secure multi-user access.
-- **Google Sheets Integration** – Critical events (like confirmed jobs) can be mirrored to a Google Sheet via server-side API routes for reporting and backups.
+It is a **shared company workspace**: every signed-in staff member sees and manages the
+same clients, properties, inspectors, and checklists.
 
 ---
+
+## What it does
+
+- **Dashboard** — totals, what's waiting to be emailed, open issues, and recent visits.
+- **Checklists** — searchable list of every inspection, filterable by status / issues / sent.
+- **New checklist** — pick (or add) a client, property, and inspector; mark each of the
+  ~32 standard inspection points Done / Issue / N/A / Skip; attach photos and notes;
+  record interior temperatures; add summary comments.
+- **PDF report by email** — generates a branded PDF and emails it to the homeowner via SMTP.
+- **Clients & inspectors** — lightweight management of clients (with multiple property
+  addresses) and the inspectors on staff.
 
 ## Stack
 
-| Layer        | Technology |
-| ------------ | ---------- |
-| Framework    | Next.js 14 (App Router) |
-| Language     | TypeScript |
-| Database     | Supabase (PostgreSQL, Auth, Storage) |
-| Styling      | Tailwind CSS |
-| Charts       | Recharts |
-| Deployment   | Vercel |
-
-### Architectural Notes
-
-- **Hybrid Rendering** – Server components fetch initial data (e.g., clients) while client components manage interactive flows like modals and inline edits.
-- **Supabase SDKs** – Uses the server client for secure data access in RSCs and the browser client for authenticated mutations.
-- **API Routes** – Custom Next.js API endpoints handle integrations such as syncing job data to Google Sheets.
-- **State Management** – React hooks (`useState`, `useMemo`, `useEffect`) provide localized state; the design emphasizes predictable, testable components.
+| Layer     | Technology |
+| --------- | ---------- |
+| Framework | Next.js 15 (App Router, Server Actions) |
+| Language  | TypeScript |
+| Database  | Supabase (PostgreSQL · Auth · Storage) |
+| Styling   | Tailwind CSS v4 |
+| PDF       | PDFKit (standard fonts embedded — no build-time font juggling) |
+| Email     | Nodemailer (SMTP) |
 
 ---
 
-## Getting Started
+## Architecture notes
 
-### Prerequisites
-
-- Node.js 18+
-- npm (or pnpm/yarn)
-- Supabase project + service role key
-
-### Installation
-
-1. **Clone and install**
-   ```sh
-   git clone https://github.com/tymastrangelo/homewatch-crm.git
-   cd homewatch-crm
-   npm install
-   ```
-
-2. **Environment variables**
-   Create `.env.local` with the following keys:
-   ```env
-   NEXT_PUBLIC_SUPABASE_URL=https://your-project-id.supabase.co
-   NEXT_PUBLIC_SUPABASE_ANON_KEY=public-anon-key
-   SUPABASE_SERVICE_ROLE_KEY=service-role-key
-   GOOGLE_SERVICE_ACCOUNT_EMAIL=service-account@project.iam.gserviceaccount.com
-   GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n"
-   GOOGLE_SHEETS_JOB_SYNC_ID=your-sheet-id
-   ```
-
-   Adjust keys to match the integrations you enable. Service-role and Google credentials are required only if you plan to run the server-side job sync locally.
-
-3. **Database schema**
-   - The schema lives in `schema-file.txt`. Run the SQL statements in Supabase or rename the file to `schema.sql` for better tooling support.
-   - Enable Row Level Security (RLS) on each table and create policies that scope records by `user_id`.
-   - Seed data using the Supabase SQL editor or `psql` to import sample clients, properties, and jobs.
-
-4. **Run locally**
-   ```sh
-   npm run dev
-   ```
-   Visit `http://localhost:3000`.
+- **Real columns, not a JSON blob.** Visit metadata (inspector, comments, temperatures,
+  email-sent status) lives in real, query-able columns on `checklists`. Checklist items
+  carry a stable `item_key` and `sort_order` so reports always render in the intended order.
+- **One server action saves everything.** `src/app/actions/checklists.ts#saveChecklist`
+  resolves the client / property / inspector and writes the checklist + items + photos in
+  one place, server-side, under the signed-in user's RLS context. Photos upload directly
+  from the browser to Supabase Storage; only their paths flow through the action.
+- **Reads go through `src/lib/checklistData.ts`**, which returns clean view models (with
+  signed photo URLs) for the dashboard, list, detail, and edit pages.
+- **Auth** is enforced in `middleware.ts` using `supabase.auth.getUser()` (validates the
+  token), with `@supabase/ssr` cookie handling.
 
 ---
 
-## Key Commands
+## Getting started
 
-| Command | Description |
-| ------- | ----------- |
-| `npm run dev` | Start the Next.js dev server |
-| `npm run build` | Create an optimized production build |
-| `npm run start` | Run the production build |
-| `npm run lint` | Lint the project with ESLint |
+### 1. Install
+
+```sh
+npm install
+```
+
+### 2. Environment — create `.env.local`
+
+```env
+NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
+
+# SMTP (required to email reports)
+SMTP_HOST=smtp.yourhost.com
+SMTP_PORT=587
+SMTP_USER=your-smtp-user
+SMTP_PASS=your-smtp-pass
+EMAIL_FROM="239 Home Services <info@239homeservices.com>"
+# SMTP_SECURE=true   # optional; defaults to true only when SMTP_PORT=465
+```
+
+### 3. Apply the database migration — **required**
+
+The app expects the upgraded schema. Open the Supabase **SQL Editor** and run:
+
+```
+supabase/migrations/0001_core_schema_overhaul.sql
+```
+
+It is **idempotent and non-destructive**: it adds the new columns, backfills every
+existing checklist from the old JSON `notes` blob, sets up the shared-workspace RLS
+policies, and creates the `checklist-photos` storage bucket. Nothing is deleted.
+(After you've confirmed the data looks right in the app, you may optionally run the
+commented-out final statement to clear the now-redundant `notes` blob.)
+
+> Until this migration is applied, pages that read the new columns will error — so run it first.
+
+### 4. Run
+
+```sh
+npm run dev      # http://localhost:3000
+npm run build    # production build
+npm run lint     # lint
+```
+
+Create a staff login from the Supabase **Authentication** dashboard, then sign in at `/login`.
 
 ---
 
-## Project Structure
+## Project structure
 
 ```
 src/
   app/
-    clients/           // Client + property management UI
-    jobs/              // Job pipeline and scheduling pages
-    quotes/            // Quote review workflow
-    expenses/          // Expense tracking
-    dashboard/         // Main analytics overview
-    calculator/        // Pricing calculator for service packages
-    api/               // Custom API routes (Supabase + Google integrations)
-  components/
-    Modal.tsx          // Shared dialog component
-    AppShell.tsx       // Layout + navigation
-    ClientsManager.tsx // Client list + detail modal
+    actions/checklists.ts      # saveChecklist / deleteChecklist server actions
+    api/checklists/[id]/email  # PDF generation + email route
+    checklist/                 # new checklist page
+    checklists/                # list, [id] detail, [id]/edit
+    clients/  inspectors/      # management pages
+    dashboard/                 # overview
+    login/  auth/callback/     # auth
+  components/                  # ChecklistForm, cards, managers, shell, nav
   lib/
-    supabaseClient.ts  // Browser Supabase client factory
-    supabaseServerClient.ts // Server-side Supabase client helper
-    types.ts           // Generated Supabase types
+    checklistTemplate.ts       # the canonical 32-point inspection template
+    checklistData.ts           # server-side read models
+    constants.ts  types.ts     # company info, DB types
+supabase/migrations/           # SQL migration + backfill
 ```
-
----
-
-## Future Enhancements
-
-- Supabase Realtime for live updates across dashboards
-- Job routing + technician notifications via email/SMS
-- Offline-first PWA mode for field technicians
-- Automated invoice generation and payment links
-- Component/E2E testing (Jest, Testing Library, Cypress)
-
----
-
-## Contact
-
-Tyler Mastrangelo – [linkedin.com/in/tymastrangelo](https://www.linkedin.com/in/tymastrangelo) – mastrangelo.tyler@gmail.com
-
-Project Link: [https://github.com/tymastrangelo/homewatch-crm](https://github.com/tymastrangelo/homewatch-crm)

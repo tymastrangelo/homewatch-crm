@@ -2,510 +2,191 @@ import Image from 'next/image'
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import EmailChecklistButton from '@/components/EmailChecklistButton'
-import { createSupabaseServerClient } from '@/lib/supabaseServerClient'
-import type { Checklist, ChecklistItem, ChecklistPhoto, Client, Property } from '@/lib/supabaseClient'
+import DeleteChecklistButton from '@/components/DeleteChecklistButton'
+import SetupNotice from '@/components/SetupNotice'
+import { getChecklistView } from '@/lib/checklistData'
+import { categoryLabel, CATEGORY_ORDER, STATUS_LABELS } from '@/lib/checklistTemplate'
+import type { ChecklistCategory } from '@/lib/checklistTemplate'
 import type { ChecklistItemStatus } from '@/lib/types'
 
 export const revalidate = 0
 
-type ChecklistPhotoWithUrl = ChecklistPhoto & {
-  resolvedUrl: string
-}
-
-type ChecklistItemWithPhotos = ChecklistItem & {
-  checklist_photos: ChecklistPhotoWithUrl[]
-}
-
-type PropertyWithClient = Property & {
-  client: Client | null
-}
-
-type ChecklistWithRelations = Checklist & {
-  properties: PropertyWithClient | null
-  checklist_items: ChecklistItemWithPhotos[]
-}
-
-type ChecklistMeta = {
-  clientId?: string
-  propertyId?: string
-  clientName?: string
-  address?: string
-  inspector?: string
-  inspectorId?: string | null
-  inspectorEmail?: string | null
-  inspectorPhone?: string | null
-  phone?: string
-  email?: string
-  comments?: string | null
-  itemSummary?: string
-  garageTemp?: string | null
-  mainFloorTemp?: string | null
-  secondFloorTemp?: string | null
-  thirdFloorTemp?: string | null
-  temperatures?: {
-    garage?: string | null
-    mainFloor?: string | null
-    secondFloor?: string | null
-    thirdFloor?: string | null
-  }
-}
-
-const STATUS_META: Record<ChecklistItemStatus, { label: string; className: string; dotClassName: string }> = {
-  done: {
-    label: 'Done',
-    className: 'border-green-200 bg-green-50 text-green-700',
-    dotClassName: 'bg-green-500'
-  },
-  na: {
-    label: 'Not applicable',
-    className: 'border-gray-200 bg-gray-50 text-gray-700',
-    dotClassName: 'bg-gray-400'
-  },
-  issue: {
-    label: 'Issue',
-    className: 'border-red-200 bg-red-50 text-red-700',
-    dotClassName: 'bg-red-500'
-  },
-  unchecked: {
-    label: 'Unchecked',
-    className: 'border-yellow-200 bg-yellow-50 text-yellow-700',
-    dotClassName: 'bg-yellow-500'
-  }
-}
-
-const CATEGORY_LABELS: Record<string, string> = {
-  exterior: 'Exterior',
-  interior: 'Interior',
-  security: 'Security',
-  lanai_pool: 'Lanai / Pool',
-  final: 'Final tasks'
-}
-
-function formatCategoryLabel(key: string) {
-  return key
-    .split('_')
-    .map(segment => segment.charAt(0).toUpperCase() + segment.slice(1))
-    .join(' ')
+const STATUS_STYLE: Record<ChecklistItemStatus, { chip: string; dot: string }> = {
+  done: { chip: 'border-green-200 bg-green-50 text-green-700', dot: 'bg-green-500' },
+  issue: { chip: 'border-red-200 bg-red-50 text-red-700', dot: 'bg-red-500' },
+  na: { chip: 'border-gray-200 bg-gray-50 text-gray-600', dot: 'bg-gray-400' },
+  unchecked: { chip: 'border-amber-200 bg-amber-50 text-amber-700', dot: 'bg-amber-400' }
 }
 
 function formatDate(value: string | null) {
   if (!value) return 'Not recorded'
   const date = new Date(value)
-  return new Intl.DateTimeFormat('en-US', {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric'
-  }).format(date)
+  if (Number.isNaN(date.getTime())) return 'Not recorded'
+  return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric' }).format(date)
 }
 
-function formatDateTime(value: string) {
+function formatDateTime(value: string | null) {
+  if (!value) return 'Not recorded'
   const date = new Date(value)
-  return new Intl.DateTimeFormat('en-US', {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit'
-  }).format(date)
+  if (Number.isNaN(date.getTime())) return 'Not recorded'
+  return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' }).format(date)
 }
 
-function parseMeta(notes: string | null): ChecklistMeta {
-  if (!notes) return {}
-  try {
-    return JSON.parse(notes) as ChecklistMeta
-  } catch (error) {
-    console.error('Failed to parse checklist metadata', error)
-    return {}
-  }
-}
-
-type PageProps = {
-  params: Promise<{ id: string }>
-}
-
-export default async function ChecklistDetailPage({ params }: PageProps) {
+export default async function ChecklistDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
-  const supabase = await createSupabaseServerClient()
+  const { view, status } = await getChecklistView(id)
 
-  const { data, error } = await supabase
-    .from('checklists')
-    .select(`
-      id,
-      notes,
-      visit_date,
-      created_at,
-      updated_at,
-      properties:properties!checklists_property_id_fkey (
-        id,
-        name,
-        address,
-        client_id,
-        client:clients!properties_client_id_fkey (
-          id,
-          name,
-          phone,
-          email
-        )
-      ),
-      checklist_items (
-        id,
-        category,
-        item_text,
-        status,
-        notes,
-        checklist_photos (
-          id,
-          storage_path
-        )
-      )
-    `)
-  .eq('id', id)
-    .maybeSingle<ChecklistWithRelations>()
-
-  if (error) {
-    console.error('Failed to load checklist', error)
-
-    if (typeof error.message === 'string' && error.message.toLowerCase().includes('permission denied')) {
-      return (
-        <main className="min-h-screen bg-gray-50 p-4 md:p-6">
-          <div className="max-w-3xl mx-auto">
-            <div className="rounded-2xl border border-amber-200 bg-amber-50 p-6 text-amber-800">
-              <h1 className="text-xl font-semibold">Unable to show this checklist</h1>
-              <p className="mt-3 text-sm leading-relaxed">
-                Supabase row-level security blocked access to checklist <code className="rounded bg-amber-100 px-1">{id}</code>. Verify your <code className="rounded bg-amber-100 px-1">SELECT</code> policies on
-                the <code className="rounded bg-amber-100 px-1">checklists</code>, <code className="rounded bg-amber-100 px-1">checklist_items</code>, and <code className="rounded bg-amber-100 px-1">properties</code> tables so that the signed-in user can read their own records.
-              </p>
-              <p className="mt-4 text-sm">
-                <Link href="/dashboard" className="text-primary-600 hover:underline">Return to dashboard</Link>
-              </p>
-            </div>
-          </div>
-        </main>
-      )
-    }
+  if (status !== 'ok') {
+    return (
+      <main className="mx-auto max-w-3xl space-y-4 p-4 md:p-6">
+        <Link href="/checklists" className="text-sm text-primary-700 hover:underline">← All checklists</Link>
+        <SetupNotice status={status} />
+      </main>
+    )
   }
 
-  if (!data) {
-    notFound()
+  if (!view) notFound()
+
+  const visitDate = view.visitDate ?? view.createdAt
+  const temps = [
+    ['Garage / Storage', view.temps.garage],
+    ['Main floor', view.temps.mainFloor],
+    ['2nd floor', view.temps.secondFloor],
+    ['3rd floor', view.temps.thirdFloor]
+  ].filter(([, value]) => Boolean(value)) as Array<[string, string]>
+
+  const grouped = new Map<string, typeof view.items>()
+  for (const item of view.items) {
+    const list = grouped.get(item.category) ?? []
+    list.push(item)
+    grouped.set(item.category, list)
   }
-
-  const checklist = data
-  const meta = parseMeta(checklist.notes)
-  const property = checklist.properties
-  const propertyClient = property?.client ?? null
-  const clientDisplayName = meta.clientName ?? propertyClient?.name ?? property?.name ?? ''
-  const propertyAddress = meta.address ?? property?.address ?? ''
-  const recipientEmail = meta.email ?? propertyClient?.email ?? null
-  const phoneValue = meta.phone ?? propertyClient?.phone ?? null
-  const emailValue = meta.email ?? propertyClient?.email ?? null
-  const inspectorPhoneValue = meta.inspectorPhone ?? null
-  const inspectorEmailValue = meta.inspectorEmail ?? null
-  const visitDateValue = checklist.visit_date ?? checklist.created_at
-  const temperatures = {
-    garage: meta.temperatures?.garage ?? meta.garageTemp ?? null,
-    mainFloor: meta.temperatures?.mainFloor ?? meta.mainFloorTemp ?? null,
-    secondFloor: meta.temperatures?.secondFloor ?? meta.secondFloorTemp ?? null,
-    thirdFloor: meta.temperatures?.thirdFloor ?? meta.thirdFloorTemp ?? null
-  }
-  const hasTemperatureReadings = Object.values(temperatures).some(value => (value ?? '').toString().trim() !== '')
-
-  const resolvePhotoUrl = async (storagePath: string | null) => {
-    if (!storagePath) return null
-    if (/^https?:\/\//.test(storagePath)) {
-      return storagePath
-    }
-
-    const [bucket, ...objectParts] = storagePath.split('/')
-    if (!bucket || objectParts.length === 0) {
-      return null
-    }
-
-    const objectPath = objectParts.join('/')
-    const { data: signedData, error } = await supabase.storage.from(bucket).createSignedUrl(objectPath, 60 * 60 * 6)
-
-    if (error) {
-      console.warn('Failed to create signed URL for checklist photo', { storagePath, error })
-      const { data: publicUrlData } = supabase.storage.from(bucket).getPublicUrl(objectPath)
-      return publicUrlData?.publicUrl ?? null
-    }
-
-    return signedData?.signedUrl ?? null
-  }
-
-  const items = await Promise.all(
-    (checklist.checklist_items ?? []).map(async item => {
-      const resolvedPhotos = await Promise.all(
-        (item.checklist_photos ?? []).map(async photo => {
-          const resolvedUrl = await resolvePhotoUrl(photo.storage_path)
-          if (!resolvedUrl) return null
-          return {
-            ...photo,
-            resolvedUrl
-          }
-        })
-      )
-
-      return {
-        ...item,
-        checklist_photos: resolvedPhotos.filter((photo): photo is ChecklistPhotoWithUrl => Boolean(photo))
-      }
-    })
-  )
-
-  const statusCounts: Record<ChecklistItemStatus, number> = {
-    done: 0,
-    issue: 0,
-    na: 0,
-    unchecked: 0
-  }
-
-  const groupedByCategory = new Map<string, ChecklistItemWithPhotos[]>()
-
-  for (const item of items) {
-    const status = (item.status ?? 'unchecked') as ChecklistItemStatus
-    statusCounts[status] += 1
-
-    const categoryKey = item.category || 'general'
-    const existing = groupedByCategory.get(categoryKey)
-    if (existing) {
-      existing.push(item)
-    } else {
-      groupedByCategory.set(categoryKey, [item])
-    }
-  }
-
-  const orderedCategoryKeys = [
-    'exterior',
-    'interior',
-    'security',
-    'lanai_pool',
-    'final',
-    ...Array.from(groupedByCategory.keys()).filter(key => !['exterior', 'interior', 'security', 'lanai_pool', 'final'].includes(key))
-  ].filter((key, index, array) => array.indexOf(key) === index && groupedByCategory.has(key))
-
-  const totalItems = items.length
+  const orderedKeys = [
+    ...CATEGORY_ORDER.filter(k => grouped.has(k)),
+    ...Array.from(grouped.keys()).filter(k => !CATEGORY_ORDER.includes(k as ChecklistCategory))
+  ]
 
   return (
-    <main className="min-h-screen bg-gray-50 p-4 md:p-6">
+    <main className="p-4 md:p-6">
       <div className="mx-auto max-w-5xl space-y-6">
+        <div className="text-sm">
+          <Link href="/checklists" className="text-primary-700 hover:underline">← All checklists</Link>
+        </div>
+
         <header className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
           <div>
-            <p className="text-sm text-gray-500">
-              <Link href="/dashboard" className="text-primary-600 hover:underline">Back to dashboard</Link>
-            </p>
-            <h1 className="text-2xl font-bold text-gray-900 md:text-3xl">{clientDisplayName || 'Checklist details'}</h1>
-            <p className="text-sm text-gray-600 mt-1">
-              Visit on {formatDate(visitDateValue)}
-            </p>
+            <h1 className="text-2xl font-bold text-gray-900 md:text-3xl">{view.client?.name || view.property?.name || 'Checklist'}</h1>
+            <p className="mt-1 text-sm text-gray-600">{view.property?.address || 'No address'} · {formatDate(visitDate)}</p>
           </div>
-          <div className="flex w-full flex-col items-stretch gap-3 text-sm md:w-auto md:items-end">
-            <div className="flex flex-wrap items-center gap-2">
-              <div className="rounded-full border border-gray-200 bg-white px-3 py-1 text-gray-700">
-                Total items: {totalItems}
-              </div>
-              <div className="rounded-full border border-red-200 bg-red-50 px-3 py-1 text-red-700">
-                Issues: {statusCounts.issue}
-              </div>
-              <div className="rounded-full border border-green-200 bg-green-50 px-3 py-1 text-green-700">
-                Done: {statusCounts.done}
-              </div>
-            </div>
-            <Link
-              href={`/checklists/${checklist.id}/edit`}
-              className="inline-flex items-center justify-center rounded-lg border border-primary-200 bg-primary-50 px-4 py-2 font-semibold text-primary-700 transition hover:bg-primary-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-500 md:w-auto"
-            >
-              Edit checklist
-            </Link>
-            <EmailChecklistButton
-              checklistId={checklist.id}
-              recipientEmail={recipientEmail ?? ''}
-              clientName={clientDisplayName}
-              propertyAddress={propertyAddress}
-              visitDate={visitDateValue}
-            />
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="rounded-full border border-green-200 bg-green-50 px-3 py-1 text-sm text-green-700">{view.counts.done} done</span>
+            {view.counts.issue > 0 && <span className="rounded-full border border-red-200 bg-red-50 px-3 py-1 text-sm text-red-700">{view.counts.issue} issue{view.counts.issue === 1 ? '' : 's'}</span>}
+            <Link href={`/checklists/${view.id}/edit`} className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50">Edit</Link>
+            <DeleteChecklistButton checklistId={view.id} />
           </div>
         </header>
 
-        <section className="grid grid-cols-1 gap-4 md:grid-cols-2">
-          <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
+        {view.emailSentAt ? (
+          <div className="rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800">
+            Report emailed {view.emailSentTo ? `to ${view.emailSentTo} ` : ''}on {formatDateTime(view.emailSentAt)}.
+          </div>
+        ) : null}
+
+        <section className="grid grid-cols-1 gap-4 md:grid-cols-3">
+          <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm md:col-span-2">
             <h2 className="text-lg font-semibold text-gray-900">Visit details</h2>
-            <dl className="mt-4 space-y-3 text-sm text-gray-700">
-              <div className="flex justify-between">
-                <dt className="text-gray-500">Client</dt>
-                <dd className="text-gray-900">{clientDisplayName || 'Not provided'}</dd>
-              </div>
-              <div className="flex justify-between">
-                <dt className="text-gray-500">Property</dt>
-                <dd className="text-right text-gray-900">{propertyAddress || 'Not provided'}</dd>
-              </div>
-              <div className="flex justify-between">
-                <dt className="text-gray-500">Inspector</dt>
-                <dd className="text-gray-900">{meta.inspector ?? 'Not provided'}</dd>
-              </div>
-              {inspectorPhoneValue && (
-                <div className="flex justify-between">
-                  <dt className="text-gray-500">Inspector phone</dt>
-                  <dd className="text-gray-900">{inspectorPhoneValue}</dd>
-                </div>
-              )}
-              {inspectorEmailValue && (
-                <div className="flex justify-between">
-                  <dt className="text-gray-500">Inspector email</dt>
-                  <dd className="text-gray-900">{inspectorEmailValue}</dd>
-                </div>
-              )}
-              <div className="flex justify-between">
-                <dt className="text-gray-500">Date</dt>
-                <dd className="text-gray-900">{formatDate(visitDateValue)}</dd>
-              </div>
-              <div className="flex justify-between">
-                <dt className="text-gray-500">Created</dt>
-                <dd className="text-gray-900">{formatDateTime(checklist.created_at)}</dd>
-              </div>
-              <div className="flex justify-between">
-                <dt className="text-gray-500">Last updated</dt>
-                <dd className="text-gray-900">{formatDateTime(checklist.updated_at)}</dd>
-              </div>
-              {phoneValue && (
-                <div className="flex justify-between">
-                  <dt className="text-gray-500">Phone</dt>
-                  <dd className="text-gray-900">{phoneValue}</dd>
-                </div>
-              )}
-              {emailValue && (
-                <div className="flex justify-between">
-                  <dt className="text-gray-500">Email</dt>
-                  <dd className="text-gray-900">{emailValue}</dd>
-                </div>
-              )}
+            <dl className="mt-4 grid grid-cols-1 gap-x-6 gap-y-3 text-sm sm:grid-cols-2">
+              <Detail label="Client" value={view.client?.name} />
+              <Detail label="Property" value={view.property?.address} />
+              <Detail label="Inspector" value={view.inspector?.name} />
+              <Detail label="Visit date" value={formatDate(visitDate)} />
+              <Detail label="Client phone" value={view.client?.phone} />
+              <Detail label="Client email" value={view.client?.email} />
+              <Detail label="Created" value={formatDateTime(view.createdAt)} />
+              <Detail label="Last updated" value={formatDateTime(view.updatedAt)} />
             </dl>
+            {temps.length > 0 && (
+              <div className="mt-4 border-t border-gray-100 pt-4">
+                <h3 className="text-sm font-semibold text-gray-900">Temperatures</h3>
+                <div className="mt-2 flex flex-wrap gap-2 text-sm">
+                  {temps.map(([label, value]) => (
+                    <span key={label} className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-1 text-gray-700">{label}: <strong>{value}</strong></span>
+                  ))}
+                </div>
+              </div>
+            )}
+            {view.comments && (
+              <div className="mt-4 rounded-lg border border-blue-100 bg-blue-50 p-3 text-sm text-blue-900">
+                <h3 className="font-semibold">Inspector comments</h3>
+                <p className="mt-1 whitespace-pre-line">{view.comments}</p>
+              </div>
+            )}
           </div>
 
           <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
-            <h2 className="text-lg font-semibold text-gray-900">Status breakdown</h2>
-            <ul className="mt-4 space-y-2 text-sm text-gray-700">
-              {(Object.keys(STATUS_META) as ChecklistItemStatus[]).map(statusKey => (
-                <li key={statusKey} className="flex items-center justify-between rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
-                  <div className="flex items-center gap-2">
-                    <span className={`h-2.5 w-2.5 rounded-full ${STATUS_META[statusKey].dotClassName}`} />
-                    <span>{STATUS_META[statusKey].label}</span>
-                  </div>
-                  <span className="font-medium text-gray-900">{statusCounts[statusKey]}</span>
-                </li>
-              ))}
-            </ul>
-            {hasTemperatureReadings && (
-              <div className="mt-4 space-y-2 rounded-lg border border-gray-200 bg-white p-3">
-                <h3 className="text-sm font-semibold text-gray-900">Temperature readings</h3>
-                <dl className="mt-2 space-y-1 text-sm text-gray-700">
-                  {temperatures.garage && (
-                    <div className="flex justify-between">
-                      <dt>Garage / Storage</dt>
-                      <dd className="font-medium text-gray-900">{temperatures.garage}</dd>
-                    </div>
-                  )}
-                  {temperatures.mainFloor && (
-                    <div className="flex justify-between">
-                      <dt>Main Floor</dt>
-                      <dd className="font-medium text-gray-900">{temperatures.mainFloor}</dd>
-                    </div>
-                  )}
-                  {temperatures.secondFloor && (
-                    <div className="flex justify-between">
-                      <dt>2nd Floor / 2nd Zone</dt>
-                      <dd className="font-medium text-gray-900">{temperatures.secondFloor}</dd>
-                    </div>
-                  )}
-                  {temperatures.thirdFloor && (
-                    <div className="flex justify-between">
-                      <dt>3rd Floor</dt>
-                      <dd className="font-medium text-gray-900">{temperatures.thirdFloor}</dd>
-                    </div>
-                  )}
-                </dl>
-              </div>
-            )}
-            {meta.comments && (
-              <div className="mt-4 rounded-lg border border-blue-100 bg-blue-50 p-3 text-sm text-blue-900">
-                <h3 className="font-semibold">Inspector comments</h3>
-                <p className="mt-1 whitespace-pre-line leading-relaxed">{meta.comments}</p>
-              </div>
-            )}
+            <h2 className="text-lg font-semibold text-gray-900">Send report</h2>
+            <p className="mt-1 text-sm text-gray-500">Email the homeowner a PDF of this inspection.</p>
+            <div className="mt-3">
+              <EmailChecklistButton
+                checklistId={view.id}
+                recipientEmail={view.recipientEmail ?? ''}
+                clientName={view.client?.name ?? ''}
+                propertyAddress={view.property?.address ?? ''}
+                visitDate={visitDate}
+                alreadySentAt={view.emailSentAt}
+              />
+            </div>
           </div>
         </section>
 
-        {/* {meta.itemSummary && (
-          <section className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
-            <h2 className="text-lg font-semibold text-gray-900">Submission summary</h2>
-            <pre className="mt-3 whitespace-pre-wrap rounded-lg bg-gray-50 p-3 text-sm text-gray-700">{meta.itemSummary}</pre>
-          </section>
-        )} */}
-
         <section className="space-y-4">
-          {orderedCategoryKeys.length === 0 ? (
-            <div className="rounded-2xl border border-gray-200 bg-white p-6 text-center text-sm text-gray-600">
-              No checklist items were stored for this visit.
-            </div>
-          ) : (
-            orderedCategoryKeys.map(categoryKey => {
-            const categoryItems = groupedByCategory.get(categoryKey) ?? []
-            const categoryLabel = CATEGORY_LABELS[categoryKey] ?? formatCategoryLabel(categoryKey)
-
+          {orderedKeys.map(key => {
+            const list = grouped.get(key) ?? []
             return (
-              <div key={categoryKey} className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
-                <h2 className="text-lg font-semibold text-gray-900">{categoryLabel}</h2>
-                <div className="mt-4 space-y-3">
-                  {categoryItems
-                    .slice()
-                    .sort((a, b) => a.item_text.localeCompare(b.item_text))
-                    .map(item => {
-                      const status = (item.status ?? 'unchecked') as ChecklistItemStatus
-                      const photos = item.checklist_photos ?? []
-
-                      return (
-                        <div key={item.id} className="rounded-xl border border-gray-100 bg-gray-50 p-4">
-                          <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
-                            <div className="flex-1">
-                              <p className="text-base font-medium text-gray-900">{item.item_text}</p>
-                              {item.notes && <p className="mt-1 text-sm text-gray-600 whitespace-pre-line">{item.notes}</p>}
-                              {photos.length > 0 && (
-                                <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3">
-                                  {photos.map(photo => (
-                                    <a
-                                      key={photo.id}
-                                      href={photo.resolvedUrl}
-                                      target="_blank"
-                                      rel="noopener noreferrer"
-                                      className="group block overflow-hidden rounded-lg border border-gray-200"
-                                    >
-                                      <Image
-                                        src={photo.resolvedUrl}
-                                        alt={`Photo for ${item.item_text}`}
-                                        width={320}
-                                        height={240}
-                                        sizes="(min-width: 1024px) 200px, (min-width: 640px) 30vw, 45vw"
-                                        className="h-32 w-full object-cover transition duration-200 group-hover:scale-105"
-                                      />
-                                    </a>
-                                  ))}
-                                </div>
-                              )}
-                            </div>
-                            <span className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-sm font-medium ${STATUS_META[status].className}`}>
-                              <span className={`h-2 w-2 rounded-full ${STATUS_META[status].dotClassName}`} />
-                              {STATUS_META[status].label}
-                            </span>
+              <div key={key} className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
+                <h2 className="text-lg font-semibold text-gray-900">{categoryLabel(key)}</h2>
+                <div className="mt-3 space-y-3">
+                  {list.map(item => {
+                    const style = STATUS_STYLE[item.status]
+                    return (
+                      <div key={item.id} className="rounded-xl border border-gray-100 bg-gray-50 p-3">
+                        <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                          <div className="flex-1">
+                            <p className="text-sm font-medium text-gray-900">{item.label}</p>
+                            {item.notes && <p className="mt-1 whitespace-pre-line text-sm text-gray-600">{item.notes}</p>}
+                            {item.photos.length > 0 && (
+                              <div className="mt-3 grid grid-cols-3 gap-2 sm:grid-cols-4">
+                                {item.photos.map(photo => (
+                                  <a key={photo.id} href={photo.url} target="_blank" rel="noopener noreferrer" className="block overflow-hidden rounded-lg border border-gray-200">
+                                    <Image src={photo.url} alt={item.label} width={200} height={150} className="h-24 w-full object-cover" />
+                                  </a>
+                                ))}
+                              </div>
+                            )}
                           </div>
+                          <span className={`inline-flex shrink-0 items-center gap-2 rounded-full border px-3 py-1 text-xs font-medium ${style.chip}`}>
+                            <span className={`h-2 w-2 rounded-full ${style.dot}`} />
+                            {STATUS_LABELS[item.status]}
+                          </span>
                         </div>
-                      )
-                    })}
+                      </div>
+                    )
+                  })}
                 </div>
               </div>
             )
-            })
-          )}
+          })}
         </section>
       </div>
     </main>
+  )
+}
+
+function Detail({ label, value }: { label: string; value?: string | null }) {
+  return (
+    <div>
+      <dt className="text-gray-500">{label}</dt>
+      <dd className="font-medium text-gray-900">{value || '—'}</dd>
+    </div>
   )
 }

@@ -1,4 +1,4 @@
-import { createClient, type SupabaseClient } from '@supabase/supabase-js'
+import { type SupabaseClient } from '@supabase/supabase-js'
 import { createBrowserClient } from '@supabase/ssr'
 import type { Database } from './types'
 import { getSupabaseCredentials } from './supabaseCredentials'
@@ -22,32 +22,21 @@ export type ChecklistItemUpdate = Tables['checklist_items']['Update']
 export type ChecklistPhoto = Tables['checklist_photos']['Row']
 
 let browserClient: SupabaseClient<Database> | null = null
-let serverClient: SupabaseClient<Database> | null = null
 
+/**
+ * Browser Supabase client (singleton) for client components. Safe to call
+ * during SSR of a client component — `createBrowserClient` only touches the
+ * document when a request is actually made, which the form does in effects and
+ * event handlers (client-only). Server code should still prefer
+ * `createSupabaseServerClient` from supabaseServerClient.ts for data fetching.
+ */
 export function getSupabaseClient(): SupabaseClient<Database> {
-  if (typeof window === 'undefined') {
-    if (!serverClient) {
-      const { supabaseUrl, supabaseAnonKey } = getSupabaseCredentials()
-      serverClient = createClient<Database>(supabaseUrl, supabaseAnonKey, {
-        auth: {
-          persistSession: false
-        }
-      })
-    }
-    return serverClient
-  }
-
   if (!browserClient) {
     const { supabaseUrl, supabaseAnonKey } = getSupabaseCredentials()
     browserClient = createBrowserClient<Database>(supabaseUrl, supabaseAnonKey)
   }
 
   return browserClient
-}
-
-export function resetSupabaseClientCache() {
-  browserClient = null
-  serverClient = null
 }
 
 export { getSupabaseCredentials } from './supabaseCredentials'

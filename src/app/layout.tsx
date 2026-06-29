@@ -7,8 +7,8 @@ import AppShell from "@/components/AppShell";
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "239 Home Services",
-  description: "Internal CRM for 239 Home Services",
+  title: "239 Home Services — Home Watch CRM",
+  description: "Property inspection checklists and reports for 239 Home Services.",
 };
 
 export default function RootLayout({

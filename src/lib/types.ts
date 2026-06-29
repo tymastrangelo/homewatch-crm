@@ -45,12 +45,6 @@ export interface Database {
             columns: ['user_id']
             referencedRelation: 'users'
             referencedColumns: ['id']
-          },
-          {
-            foreignKeyName: 'properties_client_id_fkey'
-            columns: ['id']
-            referencedRelation: 'properties'
-            referencedColumns: ['client_id']
           }
         ]
       }
@@ -59,7 +53,16 @@ export interface Database {
           id: string
           property_id: string | null
           user_id: string | null
+          inspector_id: string | null
           visit_date: string | null
+          comments: string | null
+          temp_garage: string | null
+          temp_main_floor: string | null
+          temp_second_floor: string | null
+          temp_third_floor: string | null
+          email_sent_at: string | null
+          email_sent_to: string | null
+          /** @deprecated legacy JSON blob — superseded by the real columns above */
           notes: string | null
           created_at: string
           updated_at: string
@@ -68,7 +71,15 @@ export interface Database {
           id?: string
           property_id?: string | null
           user_id?: string | null
+          inspector_id?: string | null
           visit_date?: string | null
+          comments?: string | null
+          temp_garage?: string | null
+          temp_main_floor?: string | null
+          temp_second_floor?: string | null
+          temp_third_floor?: string | null
+          email_sent_at?: string | null
+          email_sent_to?: string | null
           notes?: string | null
           created_at?: string
           updated_at?: string
@@ -77,7 +88,15 @@ export interface Database {
           id?: string
           property_id?: string | null
           user_id?: string | null
+          inspector_id?: string | null
           visit_date?: string | null
+          comments?: string | null
+          temp_garage?: string | null
+          temp_main_floor?: string | null
+          temp_second_floor?: string | null
+          temp_third_floor?: string | null
+          email_sent_at?: string | null
+          email_sent_to?: string | null
           notes?: string | null
           created_at?: string
           updated_at?: string
@@ -87,6 +106,12 @@ export interface Database {
             foreignKeyName: 'checklists_property_id_fkey'
             columns: ['property_id']
             referencedRelation: 'properties'
+            referencedColumns: ['id']
+          },
+          {
+            foreignKeyName: 'checklists_inspector_id_fkey'
+            columns: ['inspector_id']
+            referencedRelation: 'inspectors'
             referencedColumns: ['id']
           },
           {
@@ -101,6 +126,8 @@ export interface Database {
         Row: {
           id: string
           checklist_id: string | null
+          item_key: string | null
+          sort_order: number
           category: string
           item_text: string
           status: ChecklistItemStatus | null
@@ -111,6 +138,8 @@ export interface Database {
         Insert: {
           id?: string
           checklist_id?: string | null
+          item_key?: string | null
+          sort_order?: number
           category: string
           item_text: string
           status?: ChecklistItemStatus | null
@@ -121,6 +150,8 @@ export interface Database {
         Update: {
           id?: string
           checklist_id?: string | null
+          item_key?: string | null
+          sort_order?: number
           category?: string
           item_text?: string
           status?: ChecklistItemStatus | null
@@ -242,12 +273,6 @@ export interface Database {
             columns: ['client_id']
             referencedRelation: 'clients'
             referencedColumns: ['id']
-          },
-          {
-            foreignKeyName: 'checklists_property_id_fkey'
-            columns: ['id']
-            referencedRelation: 'checklists'
-            referencedColumns: ['property_id']
           }
         ]
       }

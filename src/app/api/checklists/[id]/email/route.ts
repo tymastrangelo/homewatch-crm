@@ -1,918 +1,269 @@
 import path from 'node:path'
 import { promises as fs } from 'node:fs'
+import { createRequire } from 'node:module'
 import { NextResponse, type NextRequest } from 'next/server'
 import nodemailer from 'nodemailer'
+import { revalidatePath } from 'next/cache'
 import { createSupabaseServerClient } from '@/lib/supabaseServerClient'
 import { PDFKIT_STANDARD_FONT_DATA } from '@/lib/pdfkitStandardFontData'
-import type { Checklist, ChecklistItem, ChecklistPhoto, Client, Property } from '@/lib/supabaseClient'
+import { COMPANY } from '@/lib/constants'
+import { CATEGORY_ORDER, categoryLabel, templateSortOrder } from '@/lib/checklistTemplate'
 import type { ChecklistItemStatus } from '@/lib/types'
 
 export const runtime = 'nodejs'
+export const dynamic = 'force-dynamic'
+export const maxDuration = 60
 
-type ChecklistMeta = {
-  clientId?: string
-  propertyId?: string
-  clientName?: string
-  address?: string
-  inspector?: string
-  inspectorId?: string | null
-  inspectorEmail?: string | null
-  inspectorPhone?: string | null
-  phone?: string
-  email?: string
-  comments?: string | null
-  itemSummary?: string
-  garageTemp?: string | null
-  mainFloorTemp?: string | null
-  secondFloorTemp?: string | null
-  thirdFloorTemp?: string | null
-  emailSentAt?: string | null
-  emailSentTo?: string | null
-  temperatures?: {
-    garage?: string | null
-    mainFloor?: string | null
-    secondFloor?: string | null
-    thirdFloor?: string | null
-  }
-}
-
-type ChecklistPhotoRecord = Pick<ChecklistPhoto, 'id' | 'storage_path'> & {
-  storage_path: string | null
-}
-
-type ChecklistItemWithMeta = ChecklistItem & {
-  category: string | null
-  item_text: string
-  status: ChecklistItemStatus | null
-  notes: string | null
-  checklist_photos?: ChecklistPhotoRecord[]
-}
-
-type PropertyWithClient = Property & {
-  client: Client | null
-}
-
-type ChecklistWithRelations = Checklist & {
-  properties: PropertyWithClient | null
-  checklist_items: ChecklistItemWithMeta[]
-}
-
-const COMPANY_PHONE = '239.572.2025'
-const COMPANY_PRIMARY_EMAIL = 'info@239homeservices.com'
-const COMPANY_SECONDARY_EMAIL = 'info@239homeservices.com'
-
-const STATUS_LABELS: Record<ChecklistItemStatus, string> = {
-  done: 'COMPLETE',
+const STATUS_PDF_LABEL: Record<ChecklistItemStatus, string> = {
+  done: 'DONE',
   issue: 'ISSUE',
   na: 'N/A',
-  unchecked: 'UNCHECKED'
+  unchecked: 'NOT CHECKED'
 }
 
-const CATEGORY_ORDER = ['exterior', 'interior', 'security', 'lanai_pool', 'final']
+// Cap embedded photos so a visit with dozens of images can't exhaust memory.
+const MAX_EMBEDDED_PHOTOS = 24
 
-let pdfkitFontPatchPromise: Promise<void> | null = null
-const pdfkitFontIndex = new Map<string, string>()
-let pdfkitFontIndexBuilt = false
-const pdfkitEmbeddedFontCache = new Map<string, Buffer>()
-
-type FsWithPdfkitPatch = typeof import('fs') & { __pdfkitFontPatched?: boolean }
-
-function indexPdfkitDataFiles(fsCjs: FsWithPdfkitPatch, baseDirs: string[], maxDepth = 4) {
-  if (pdfkitFontIndexBuilt) {
-    return
-  }
-
-  const seen = new Set<string>()
-  const stack: Array<{ dir: string; depth: number }> = []
-
-  for (const dir of baseDirs) {
-    if (dir && !seen.has(dir) && fsCjs.existsSync(dir)) {
-      stack.push({ dir, depth: 0 })
-      seen.add(dir)
-    }
-  }
-
-  while (stack.length > 0) {
-    const { dir, depth } = stack.pop() as { dir: string; depth: number }
-    if (depth > maxDepth) {
-      continue
-    }
-
-    let entries: import('fs').Dirent[] = []
-    try {
-      entries = fsCjs.readdirSync(dir, { withFileTypes: true })
-    } catch {
-      continue
-    }
-
-    for (const entry of entries) {
-      const resolvedPath = path.join(dir, entry.name)
-      if (entry.isDirectory()) {
-        if (!seen.has(resolvedPath)) {
-          stack.push({ dir: resolvedPath, depth: depth + 1 })
-          seen.add(resolvedPath)
-        }
-        continue
-      }
-
-      if (entry.isFile() && entry.name.endsWith('.afm')) {
-        if (!pdfkitFontIndex.has(entry.name)) {
-          pdfkitFontIndex.set(entry.name, resolvedPath)
-        }
-        continue
-      }
-
-      if (entry.isFile() && entry.name.endsWith('.ttf')) {
-        if (!pdfkitFontIndex.has(entry.name)) {
-          pdfkitFontIndex.set(entry.name, resolvedPath)
-        }
-      }
-    }
-  }
-
-  pdfkitFontIndexBuilt = true
-}
-
-async function ensurePdfkitStandardFonts() {
-  if (pdfkitFontPatchPromise) {
-    return pdfkitFontPatchPromise
-  }
-
-  pdfkitFontPatchPromise = (async () => {
-    const moduleNs = await import('node:module')
-    const createRequireFn =
-      typeof moduleNs.createRequire === 'function'
-        ? moduleNs.createRequire
-        : typeof moduleNs.default === 'object' && moduleNs.default !== null &&
-            typeof (moduleNs.default as { createRequire?: unknown }).createRequire === 'function'
-          ? ((moduleNs.default as { createRequire: typeof moduleNs.createRequire }).createRequire)
-          : typeof (moduleNs as { Module?: { createRequire?: unknown } }).Module?.createRequire === 'function'
-            ? ((moduleNs as { Module: { createRequire: typeof moduleNs.createRequire } }).Module.createRequire)
-            : typeof (moduleNs.default as { Module?: { createRequire?: unknown } } | undefined)?.Module?.createRequire === 'function'
-              ? (((moduleNs.default as { Module: { createRequire: typeof moduleNs.createRequire } }).Module.createRequire))
-              : null
-
-    const requireFn = createRequireFn ? createRequireFn(import.meta.url) : null
-
-    if (!requireFn) {
-      console.warn('Skipping PDFKit font patch: createRequire is unavailable in this runtime.')
-      return
-    }
-
-    const fsCjs = requireFn('fs') as FsWithPdfkitPatch
-
-    if (fsCjs.__pdfkitFontPatched) {
-      return
-    }
-
-    const originalReadFileSync = fsCjs.readFileSync.bind(fsCjs)
-    type ReadFileSyncSignature = typeof fsCjs.readFileSync
-    type ReadFileSyncParameters = Parameters<ReadFileSyncSignature>
-    type ReadFileSyncPath = ReadFileSyncParameters[0]
-    type ReadFileSyncOptions = ReadFileSyncParameters[1]
-    type ReadFileSyncResult = ReturnType<ReadFileSyncSignature>
-
-    const toReadFileSyncResult = (
-      raw: Buffer,
-      targetOptions: ReadFileSyncOptions
-    ): ReadFileSyncResult => {
-      if (typeof targetOptions === 'string') {
-        return raw.toString(targetOptions as BufferEncoding) as ReadFileSyncResult
-      }
-
-      if (
-        targetOptions &&
-        typeof targetOptions === 'object' &&
-        'encoding' in targetOptions &&
-        targetOptions.encoding
-      ) {
-        return raw.toString(targetOptions.encoding as BufferEncoding) as ReadFileSyncResult
-      }
-
-      return Buffer.from(raw) as ReadFileSyncResult
-    }
-
-    const callOriginal = (
-      targetPath: ReadFileSyncPath,
-      targetOptions: ReadFileSyncOptions
-    ): ReadFileSyncResult => {
-      if (typeof targetOptions === 'undefined') {
-        return (originalReadFileSync as (path: ReadFileSyncPath) => ReadFileSyncResult)(targetPath)
-      }
-      return (originalReadFileSync as (
-        path: ReadFileSyncPath,
-        options: ReadFileSyncOptions
-      ) => ReadFileSyncResult)(targetPath, targetOptions)
-    }
-
-    const candidateDirs = new Set<string>()
-
-    if (requireFn) {
-      try {
-        const resolvedPdfkitPath = requireFn.resolve('pdfkit')
-        candidateDirs.add(path.join(path.dirname(resolvedPdfkitPath), 'data'))
-      } catch {
-        // ignore resolution failures; continue with fallback directories
-      }
-    }
-
-    const bundledTargets = [
-      path.join(process.cwd(), '.next/server/chunks/data'),
-      path.join(process.cwd(), '.next/server/vendor-chunks/data'),
-      path.join(process.cwd(), '.next/server/app/api/checklists/[id]/email/data'),
-      path.join(process.cwd(), '.next/server/app/api/checklists/[id]/email/standard'),
-      path.join(process.cwd(), '.next/server/app/api/checklists/[id]/email/standard/data'),
-      path.join(process.cwd(), '.next/standalone/chunks/data'),
-      path.join(process.cwd(), '.next/standalone/vendor-chunks/data'),
-      path.join(process.cwd(), '.next/standalone/app/api/checklists/[id]/email/data'),
-      path.join(process.cwd(), '.next/standalone/app/api/checklists/[id]/email/standard'),
-      path.join(process.cwd(), '.next/standalone/app/api/checklists/[id]/email/standard/data'),
-      path.join(process.cwd(), 'node_modules/pdfkit/js/data'),
-      path.join(process.cwd(), 'node_modules/pdfkit/data')
-    ]
-
-    for (const dir of bundledTargets) {
-      if (fsCjs.existsSync(dir)) {
-        candidateDirs.add(dir)
-      }
-    }
-
-    const availableDirs = Array.from(candidateDirs).filter(dir => fsCjs.existsSync(dir))
-    if (availableDirs.length === 0) {
-      return
-    }
-
-    const patchedReadFileSync = ((filePath: ReadFileSyncPath, options?: ReadFileSyncOptions) => {
-      try {
-        return callOriginal(filePath, options as ReadFileSyncOptions)
-      } catch (error) {
-        if (
-          error &&
-          typeof filePath === 'string' &&
-          (error as NodeJS.ErrnoException).code === 'ENOENT' &&
-          filePath.includes('/data/') &&
-          (filePath.endsWith('.afm') || filePath.endsWith('.ttf') || filePath.endsWith('.cff'))
-        ) {
-          const fileName = path.basename(filePath)
-
-          const embeddedFontData = PDFKIT_STANDARD_FONT_DATA[fileName]
-          if (embeddedFontData) {
-            let cachedBuffer = pdfkitEmbeddedFontCache.get(fileName)
-            if (!cachedBuffer) {
-              cachedBuffer = Buffer.from(embeddedFontData, 'base64')
-              pdfkitEmbeddedFontCache.set(fileName, cachedBuffer)
-            }
-
-            return toReadFileSyncResult(cachedBuffer, options as ReadFileSyncOptions)
-          }
-
-          if (requireFn) {
-            try {
-              const resolvedDataFile = requireFn.resolve(`pdfkit/js/data/${fileName}`)
-              return callOriginal(resolvedDataFile as ReadFileSyncPath, options as ReadFileSyncOptions)
-            } catch {
-              try {
-                const resolvedAltDataFile = requireFn.resolve(`pdfkit/data/${fileName}`)
-                return callOriginal(resolvedAltDataFile as ReadFileSyncPath, options as ReadFileSyncOptions)
-              } catch {
-                // fall through to directory search
-              }
-            }
-          }
-
-          for (const dir of availableDirs) {
-            const alternatePath = path.join(dir, fileName)
-            if (fsCjs.existsSync(alternatePath)) {
-              return callOriginal(alternatePath as ReadFileSyncPath, options as ReadFileSyncOptions)
-            }
-          }
-
-          if (!pdfkitFontIndexBuilt) {
-            const candidateBaseDirs = [
-              path.join(process.cwd(), '.next/server/chunks'),
-              path.join(process.cwd(), '.next/server/app'),
-              path.join(process.cwd(), '.next/server/app/api/checklists/[id]/email'),
-              path.join(process.cwd(), '.next/standalone/chunks'),
-              path.join(process.cwd(), '.next/standalone/app'),
-              path.join(process.cwd(), 'node_modules/pdfkit'),
-              path.join(process.cwd(), 'node_modules')
-            ]
-            indexPdfkitDataFiles(fsCjs, candidateBaseDirs)
-          }
-
-          const indexedPath = pdfkitFontIndex.get(fileName)
-          if (indexedPath && fsCjs.existsSync(indexedPath)) {
-            return callOriginal(indexedPath as ReadFileSyncPath, options as ReadFileSyncOptions)
-          }
-        }
-        throw error
-      }
-    }) as typeof fsCjs.readFileSync
-
-    fsCjs.readFileSync = patchedReadFileSync
-    fsCjs.__pdfkitFontPatched = true
-  })().catch(error => {
-    pdfkitFontPatchPromise = null
-    throw error
-  })
-
-  return pdfkitFontPatchPromise
-}
-
-function parseMeta(notes: string | null): ChecklistMeta {
-  if (!notes) return {}
+// ---------------------------------------------------------------------------
+// PDFKit ships its standard-font metric (.afm) files on disk, which Next.js
+// does not always trace into a serverless bundle. Rather than copy files around
+// (fragile), we patch fs.readFileSync once to serve the metrics straight from
+// an embedded constant. Self-contained, no build-time file juggling required.
+// ---------------------------------------------------------------------------
+let fontPatchApplied = false
+function ensureStandardFonts() {
+  if (fontPatchApplied) return
   try {
-    return JSON.parse(notes) as ChecklistMeta
-  } catch (error) {
-    console.error('Failed to parse checklist metadata for email generation', error)
-    return {}
-  }
-}
-
-function resolveTemperature(meta: ChecklistMeta, key: keyof NonNullable<ChecklistMeta['temperatures']>) {
-  const fallbackKey =
-    key === 'garage'
-      ? 'garageTemp'
-      : key === 'mainFloor'
-        ? 'mainFloorTemp'
-        : key === 'secondFloor'
-          ? 'secondFloorTemp'
-          : 'thirdFloorTemp'
-
-  const primary = meta.temperatures?.[key]
-  if (primary && primary.trim() !== '') {
-    return primary
-  }
-
-  const fallback = (meta as Record<string, string | null | undefined>)[fallbackKey]
-  if (typeof fallback === 'string' && fallback.trim() !== '') {
-    return fallback
-  }
-
-  return null
-}
-
-function formatCategoryLabel(value: string | null) {
-  if (!value) return 'General'
-  if (value === 'lanai_pool') return 'Lanai / Pool'
-  return value
-    .split('_')
-    .map(segment => segment.charAt(0).toUpperCase() + segment.slice(1))
-    .join(' ')
-}
-
-function extractChecklistId(params: unknown): string | null {
-  if (!params || typeof params !== 'object') {
-    return null
-  }
-
-  const record = params as Record<string, unknown>
-  const rawValue = record.id
-
-  if (typeof rawValue === 'string' && rawValue.trim() !== '') {
-    return rawValue
-  }
-
-  if (Array.isArray(rawValue)) {
-    const candidate = rawValue.find(value => typeof value === 'string' && value.trim() !== '')
-    return typeof candidate === 'string' ? candidate : null
-  }
-
-  return null
-}
-
-type SupabaseClientInstance = Awaited<ReturnType<typeof createSupabaseServerClient>>
-
-type DownloadedAttachment = {
-  filename: string
-  buffer: Buffer
-  contentType?: string
-}
-
-type PhotoAttachment = DownloadedAttachment & {
-  categoryKey: string
-  categoryLabel: string
-  itemLabel: string
-}
-
-const EXTENSION_TO_MIME: Record<string, string> = {
-  '.jpg': 'image/jpeg',
-  '.jpeg': 'image/jpeg',
-  '.png': 'image/png',
-  '.webp': 'image/webp',
-  '.gif': 'image/gif',
-  '.heic': 'image/heic',
-  '.heif': 'image/heif',
-  '.bmp': 'image/bmp',
-  '.mp4': 'video/mp4',
-  '.mov': 'video/quicktime',
-  '.pdf': 'application/pdf'
-}
-
-function sanitizeSegment(value: string) {
-  return value
-    .trim()
-    .replace(/\s+/g, '-')
-    .replace(/[^a-zA-Z0-9._-]/g, '-')
-    .replace(/-+/g, '-')
-    .replace(/^-|-$/g, '')
-}
-
-function sanitizeExtension(ext: string) {
-  if (!ext) return ''
-  const normalized = ext.startsWith('.') ? ext.substring(1) : ext
-  const cleaned = normalized.replace(/[^a-zA-Z0-9]/g, '').toLowerCase()
-  return cleaned ? `.${cleaned}` : ''
-}
-
-function extensionFromMime(mime?: string | null) {
-  if (!mime) return ''
-  const normalized = mime.toLowerCase()
-  const entry = Object.entries(EXTENSION_TO_MIME).find(([, value]) => value === normalized)
-  return entry ? entry[0] : ''
-}
-
-function inferContentType(filename: string, explicit?: string | null) {
-  if (explicit && explicit.trim() !== '') {
-    return explicit
-  }
-
-  const extension = sanitizeExtension(path.extname(filename))
-  if (extension && EXTENSION_TO_MIME[extension]) {
-    return EXTENSION_TO_MIME[extension]
-  }
-
-  return undefined
-}
-
-function buildFilename(rawName: string | null | undefined, fallbackBase: string, mimeHint?: string | null) {
-  const extFromName = sanitizeExtension(path.extname(rawName ?? ''))
-  const baseName = rawName ? rawName.slice(0, rawName.length - (extFromName ? extFromName.length : 0)) : ''
-  const sanitizedBase = sanitizeSegment(baseName)
-  const base = sanitizedBase || sanitizeSegment(fallbackBase) || 'file'
-  const fallbackExt = sanitizeExtension(extensionFromMime(mimeHint)) || '.jpg'
-  const extension = extFromName || fallbackExt
-  return `${base}${extension}`
-}
-
-function ensureUniqueFilename(name: string, seen: Set<string>) {
-  if (!seen.has(name)) {
-    seen.add(name)
-    return name
-  }
-
-  const extension = sanitizeExtension(path.extname(name)) || ''
-  const base = sanitizeSegment(extension ? name.slice(0, name.length - extension.length) : name) || 'file'
-
-  let counter = 2
-  let candidate = `${base}-${counter}${extension}`
-  while (seen.has(candidate)) {
-    counter += 1
-    candidate = `${base}-${counter}${extension}`
-  }
-
-  seen.add(candidate)
-  return candidate
-}
-
-async function resolvePhotoAttachment(
-  supabase: SupabaseClientInstance,
-  storagePath: string,
-  fallbackBase: string
-): Promise<DownloadedAttachment | null> {
-  if (!storagePath) {
-    return null
-  }
-
-  if (/^https?:\/\//i.test(storagePath)) {
-    try {
-      const response = await fetch(storagePath)
-      if (!response.ok) {
-        console.warn('Failed to fetch external checklist photo', { storagePath, status: response.status })
-        return null
-      }
-
-      const arrayBuffer = await response.arrayBuffer()
-      const url = new URL(storagePath)
-      const rawName = decodeURIComponent(url.pathname.split('/').pop() ?? '')
-      const filename = buildFilename(rawName, fallbackBase, response.headers.get('content-type'))
-
-      return {
-        filename,
-        buffer: Buffer.from(arrayBuffer),
-        contentType: inferContentType(filename, response.headers.get('content-type'))
-      }
-    } catch (error) {
-      console.warn('Failed to download external checklist photo', { storagePath, error })
-      return null
-    }
-  }
-
-  const [bucket, ...objectParts] = storagePath.split('/')
-  if (!bucket || objectParts.length === 0) {
-    console.warn('Checklist photo storage path is malformed', { storagePath })
-    return null
-  }
-
-  const objectPath = objectParts.join('/')
-  const { data, error } = await supabase.storage.from(bucket).download(objectPath)
-  if (error || !data) {
-    console.warn('Failed to download checklist photo from storage', { storagePath, error })
-    return null
-  }
-
-  const arrayBuffer = await data.arrayBuffer()
-  const rawName = decodeURIComponent(objectParts[objectParts.length - 1] ?? '')
-  const filename = buildFilename(rawName, fallbackBase, data.type)
-
-  return {
-    filename,
-    buffer: Buffer.from(arrayBuffer),
-    contentType: inferContentType(filename, data.type)
-  }
-}
-
-async function collectPhotoAttachments(
-  supabase: SupabaseClientInstance,
-  items: ChecklistItemWithMeta[]
-): Promise<PhotoAttachment[]> {
-  if (!items || items.length === 0) {
-    return []
-  }
-
-  const tasks: Array<Promise<{
-    attachment: DownloadedAttachment | null
-    fallbackBase: string
-    categoryKey: string
-    itemLabel: string
-  }>> = []
-
-  items.forEach((item, itemIndex) => {
-  const categoryKey = item.category ?? 'general'
-  const itemLabel = item.item_text || 'Checklist item'
-
-    ;(item.checklist_photos ?? []).forEach((photo, photoIndex) => {
-      if (!photo?.storage_path) {
-        return
-      }
-
-      const fallbackBase = `photo-${itemIndex + 1}-${photoIndex + 1}`
-
-      tasks.push(
-        resolvePhotoAttachment(supabase, photo.storage_path, fallbackBase).then(attachment => ({
-          attachment,
-          fallbackBase,
-          categoryKey,
-          itemLabel
-        }))
-      )
-    })
-  })
-
-  if (tasks.length === 0) {
-    return []
-  }
-
-  const results = await Promise.all(tasks)
-  const seen = new Set<string>()
-  const attachments: PhotoAttachment[] = []
-
-  results.forEach(({ attachment, fallbackBase, categoryKey, itemLabel }) => {
-    if (!attachment) {
+    const require = createRequire(import.meta.url)
+    const fsCjs = require('fs') as typeof import('fs') & { __homewatchFontPatch?: boolean }
+    if (fsCjs.__homewatchFontPatch) {
+      fontPatchApplied = true
       return
     }
 
-  const baseName = attachment.filename || buildFilename('', fallbackBase, attachment.contentType)
-  const uniqueName = ensureUniqueFilename(baseName, seen)
-    attachments.push({
-      filename: uniqueName,
-      buffer: attachment.buffer,
-      contentType: attachment.contentType ?? inferContentType(uniqueName, attachment.contentType),
-      categoryKey,
-      categoryLabel: formatCategoryLabel(categoryKey),
-      itemLabel
-    })
-  })
+    const original = fsCjs.readFileSync.bind(fsCjs)
+    const cache = new Map<string, Buffer>()
 
-  return attachments
+    fsCjs.readFileSync = function patched(file: Parameters<typeof original>[0], options?: Parameters<typeof original>[1]) {
+      if (typeof file === 'string' && file.endsWith('.afm')) {
+        const name = path.basename(file)
+        const embedded = PDFKIT_STANDARD_FONT_DATA[name]
+        if (embedded) {
+          let buffer = cache.get(name)
+          if (!buffer) {
+            buffer = Buffer.from(embedded, 'base64')
+            cache.set(name, buffer)
+          }
+          if (typeof options === 'string') return buffer.toString(options as BufferEncoding)
+          if (options && typeof options === 'object' && 'encoding' in options && options.encoding) {
+            return buffer.toString(options.encoding as BufferEncoding)
+          }
+          return buffer
+        }
+      }
+      return original(file as never, options as never)
+    } as typeof original
+
+    fsCjs.__homewatchFontPatch = true
+    fontPatchApplied = true
+  } catch (error) {
+    console.warn('Could not apply PDFKit font patch; relying on bundled fonts.', error)
+    fontPatchApplied = true
+  }
 }
 
-async function generateChecklistPdf({
-  checklist,
-  meta,
-  property,
-  items,
-  photos = []
-}: {
-  checklist: ChecklistWithRelations
-  meta: ChecklistMeta
-  property: PropertyWithClient | null
-  items: ChecklistItemWithMeta[]
-  photos?: PhotoAttachment[]
-}): Promise<Buffer> {
-  await ensurePdfkitStandardFonts()
+// ---------------------------------------------------------------------------
+// Data
+// ---------------------------------------------------------------------------
+type ReportPhoto = { buffer: Buffer; itemLabel: string }
+type ReportItem = {
+  label: string
+  category: string
+  status: ChecklistItemStatus
+  notes: string | null
+  sortOrder: number
+}
+type Report = {
+  clientName: string
+  propertyAddress: string
+  inspectorName: string
+  clientPhone: string
+  clientEmail: string
+  visitDate: string | null
+  comments: string
+  temps: { label: string; value: string }[]
+  items: ReportItem[]
+  counts: Record<ChecklistItemStatus, number>
+}
+
+/* eslint-disable @typescript-eslint/no-explicit-any */
+function firstRelation<T>(value: T | T[] | null | undefined): T | null {
+  return Array.isArray(value) ? value[0] ?? null : value ?? null
+}
+
+const FULL_SELECT = `
+  id, visit_date, created_at, comments,
+  temp_garage, temp_main_floor, temp_second_floor, temp_third_floor,
+  property:properties!checklists_property_id_fkey ( id, name, address,
+    client:clients!properties_client_id_fkey ( id, name, phone, email ) ),
+  inspector:inspectors!checklists_inspector_id_fkey ( id, name, email, phone ),
+  checklist_items ( id, item_key, sort_order, category, item_text, status, notes,
+    checklist_photos ( id, storage_path ) )
+`
+
+function formatDate(value: string | null) {
+  if (!value) return 'Not recorded'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return 'Not recorded'
+  return new Intl.DateTimeFormat('en-US', { month: 'long', day: 'numeric', year: 'numeric' }).format(date)
+}
+
+async function downloadPhoto(supabase: any, storagePath: string): Promise<Buffer | null> {
+  try {
+    if (/^https?:\/\//i.test(storagePath)) {
+      const res = await fetch(storagePath)
+      if (!res.ok) return null
+      return Buffer.from(await res.arrayBuffer())
+    }
+    const [bucket, ...rest] = storagePath.split('/')
+    if (!bucket || rest.length === 0) return null
+    const { data, error } = await supabase.storage.from(bucket).download(rest.join('/'))
+    if (error || !data) return null
+    return Buffer.from(await data.arrayBuffer())
+  } catch {
+    return null
+  }
+}
+
+// ---------------------------------------------------------------------------
+// PDF
+// ---------------------------------------------------------------------------
+async function generatePdf(report: Report, photos: ReportPhoto[]): Promise<Buffer> {
+  ensureStandardFonts()
   const { default: PDFDocument } = await import('pdfkit')
-  let logoBuffer: Buffer | null = null
 
+  let logo: Buffer | null = null
   try {
-    const file = await fs.readFile(path.join(process.cwd(), 'public', 'logo.png'))
-    logoBuffer = file
-  } catch (error) {
-    console.warn('Checklist PDF logo could not be read from public/logo.png', error)
+    logo = await fs.readFile(path.join(process.cwd(), 'public', 'logo.png'))
+  } catch {
+    logo = null
   }
 
-  const clientName = meta.clientName ?? property?.client?.name ?? property?.name ?? 'Not specified'
-  const propertyAddress = meta.address ?? property?.address ?? 'Not provided'
-  const inspector = meta.inspector ?? 'Not recorded'
-  const visitDate = checklist.visit_date ?? checklist.created_at
-  const companyPhone = COMPANY_PHONE
-  const companyEmail = COMPANY_PRIMARY_EMAIL
-  const comments = meta.comments ?? ''
-  const clientPhone = meta.phone ?? property?.client?.phone ?? ''
-  const clientEmail = meta.email ?? property?.client?.email ?? ''
-
-  const temperatures = {
-    garage: resolveTemperature(meta, 'garage'),
-    mainFloor: resolveTemperature(meta, 'mainFloor'),
-    secondFloor: resolveTemperature(meta, 'secondFloor'),
-    thirdFloor: resolveTemperature(meta, 'thirdFloor')
-  }
-
-  const grouped = new Map<string, ChecklistItemWithMeta[]>()
-  items.forEach(item => {
-    const categoryKey = item.category ?? 'general'
-    const existing = grouped.get(categoryKey)
-    if (existing) {
-      existing.push(item)
-    } else {
-      grouped.set(categoryKey, [item])
-    }
-  })
-
-  const orderedCategories = [
-    ...CATEGORY_ORDER,
-    ...Array.from(grouped.keys()).filter(key => !CATEGORY_ORDER.includes(key))
-  ].filter(key => grouped.has(key))
-
-  return await new Promise<Buffer>((resolve, reject) => {
+  return new Promise<Buffer>((resolve, reject) => {
     const doc = new PDFDocument({ size: 'LETTER', margin: 50 })
     const chunks: Buffer[] = []
-
-    const getContentWidth = () => doc.page.width - doc.page.margins.left - doc.page.margins.right
-    const drawCenteredImage = (imageBuffer: Buffer, widthLimit: number, heightLimit: number, padding = 16) => {
-      const contentWidth = getContentWidth()
-      const maxWidth = Math.min(contentWidth, widthLimit)
-      let targetWidth = maxWidth
-      let targetHeight = heightLimit
-      let xPosition = doc.page.margins.left + (contentWidth - targetWidth) / 2
-
-      try {
-        const image = (doc as unknown as { openImage?: (source: Buffer) => { width: number; height: number } }).openImage?.(imageBuffer)
-        if (image && typeof image.width === 'number' && typeof image.height === 'number' && image.width > 0 && image.height > 0) {
-          const scale = Math.min(maxWidth / image.width, heightLimit / image.height, 1)
-          targetWidth = image.width * scale
-          targetHeight = image.height * scale
-          xPosition = doc.page.margins.left + (contentWidth - targetWidth) / 2
-        }
-      } catch {
-        // Ignore metadata lookup failures and fall back to default sizing
-      }
-
-      const yPosition = doc.y
-      doc.image(imageBuffer, xPosition, yPosition, { width: targetWidth })
-      doc.y = yPosition + targetHeight + padding
-    }
-
-    doc.on('data', (...args: unknown[]) => {
-      const [chunk] = args
-      if (chunk instanceof Buffer) {
-        chunks.push(chunk)
-        return
-      }
-
-      if (chunk instanceof Uint8Array) {
-        chunks.push(Buffer.from(chunk))
-        return
-      }
-
-      if (typeof chunk === 'string') {
-        chunks.push(Buffer.from(chunk))
-      }
-    })
-
-    doc.on('end', () => {
-      resolve(Buffer.concat(chunks))
-    })
-
+    doc.on('data', (chunk: Buffer | Uint8Array) => chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)))
+    doc.on('end', () => resolve(Buffer.concat(chunks)))
     doc.on('error', reject)
 
-    const topMargin = doc.page.margins.top
+    const contentWidth = doc.page.width - doc.page.margins.left - doc.page.margins.right
+    const left = doc.page.margins.left
 
-    if (logoBuffer) {
+    // Header
+    if (logo) {
       try {
-        doc.y = Math.max(doc.y, topMargin)
-        drawCenteredImage(logoBuffer, 220, 90, 18)
-      } catch (error) {
-        console.warn('Checklist PDF failed to embed logo image', error)
-        doc.y = Math.max(doc.y, topMargin)
+        doc.image(logo, left + contentWidth / 2 - 90, doc.y, { fit: [180, 70], align: 'center' })
+        doc.y += 78
+      } catch {
+        /* ignore */
       }
-    } else {
-      doc.y = Math.max(doc.y, topMargin)
     }
+    doc.font('Helvetica-Bold').fontSize(20).fillColor('#1a293b').text('Home Watch Inspection Report', { align: 'center' })
+    doc.font('Helvetica').fontSize(10).fillColor('#555555')
+    doc.text(`${COMPANY.name}  ·  ${COMPANY.phone}  ·  ${COMPANY.email}`, { align: 'center' })
+    doc.moveDown(1)
 
+    // Details box
+    const detailRows: [string, string][] = [
+      ['Client', report.clientName],
+      ['Property', report.propertyAddress],
+      ['Inspector', report.inspectorName],
+      ['Visit date', formatDate(report.visitDate)]
+    ]
+    if (report.clientPhone) detailRows.push(['Phone', report.clientPhone])
+    if (report.clientEmail) detailRows.push(['Email', report.clientEmail])
+
+    doc.fontSize(10).fillColor('#111111')
+    detailRows.forEach(([label, value]) => {
+      const y = doc.y
+      doc.font('Helvetica-Bold').text(`${label}:`, left, y, { width: 110, continued: false })
+      doc.font('Helvetica').text(value || '—', left + 110, y, { width: contentWidth - 110 })
+      doc.moveDown(0.2)
+    })
     doc.moveDown(0.5)
 
-    doc.fontSize(18).fillColor('#000000').text('Basic Home Watch Checklist', { align: 'center' })
-    doc.moveDown(0.4)
-
+    // Summary chips
     doc
-      .fontSize(10)
-      .fillColor('#000000')
-      .text('PROPERTY INSPECTIONS & SERVICES', { align: 'center' })
-      .text(`Phone: ${companyPhone}`, { align: 'center' })
-      .text(`Email: ${companyEmail}`, { align: 'center' })
+      .font('Helvetica-Bold')
+      .fontSize(11)
+      .fillColor('#1a293b')
+      .text(
+        `Summary:  ${report.counts.done} done   ·   ${report.counts.issue} issues   ·   ${report.counts.na} N/A   ·   ${report.items.length} total`
+      )
+    doc.moveDown(0.5)
 
-    doc.moveDown(0.75)
-
-    doc.fontSize(12)
-      .text(`Client Name: ${clientName}`)
-      .text(`Address: ${propertyAddress}`)
-      .text(`Date of Arrival: ${visitDate ? new Date(visitDate).toLocaleDateString() : 'Not recorded'}`)
-      .text(`Inspector: ${inspector}`)
-    if (clientPhone) {
-      doc.text(`Client Phone: ${clientPhone}`)
+    // Temperatures
+    if (report.temps.length > 0) {
+      doc.font('Helvetica-Bold').fontSize(12).fillColor('#1a293b').text('Interior temperatures')
+      doc.font('Helvetica').fontSize(10).fillColor('#111111')
+      doc.text(report.temps.map(t => `${t.label}: ${t.value}`).join('     '))
+      doc.moveDown(0.6)
     }
-    if (clientEmail) {
-      doc.text(`Client Email: ${clientEmail}`)
-    }
-    doc.moveDown()
 
-  doc.fontSize(11).text('Exterior / Interior Checklist')
-    doc.moveDown(0.25)
-  doc.fontSize(9).text('Visual review and ensure mechanicals are in working order. Status values: Check mark (complete), ISSUE, N/A, UNCHECKED.')
-    doc.moveDown()
+    // Checklist grouped by category
+    const grouped = new Map<string, ReportItem[]>()
+    report.items.forEach(item => {
+      const list = grouped.get(item.category) ?? []
+      list.push(item)
+      grouped.set(item.category, list)
+    })
+    const orderedKeys = [
+      ...CATEGORY_ORDER.filter(k => grouped.has(k)),
+      ...Array.from(grouped.keys()).filter(k => !CATEGORY_ORDER.includes(k as never))
+    ]
 
-    orderedCategories.forEach(categoryKey => {
-      const categoryItems = (grouped.get(categoryKey) ?? []).slice().sort((a, b) => a.item_text.localeCompare(b.item_text))
-      doc.fontSize(12).text(formatCategoryLabel(categoryKey), { underline: true })
-      doc.moveDown(0.25)
-      categoryItems.forEach(item => {
-        const status = (item.status ?? 'unchecked') as ChecklistItemStatus
-        const baseFontSize = 10
-        doc.fontSize(baseFontSize).fillColor('#000000')
-
-        if (status === 'done') {
-          const baseX = doc.x
-          const baseY = doc.y
-          const lineHeight = doc.currentLineHeight()
-          const iconSize = lineHeight * 0.7
-          const iconX = baseX
-          const iconY = baseY + (lineHeight - iconSize) / 2
-
-          doc.save()
-          doc.lineWidth(1.4)
-          doc.strokeColor('#15803d')
-          doc.moveTo(iconX, iconY + iconSize * 0.55)
-            .lineTo(iconX + iconSize * 0.4, iconY + iconSize * 0.95)
-            .lineTo(iconX + iconSize, iconY + iconSize * 0.05)
-            .stroke()
-          doc.restore()
-
-          const textX = iconX + iconSize + 6
-          doc.text(item.item_text, textX, baseY)
-          let currentY = doc.y
-
-          if (item.notes) {
-            doc.fontSize(9).fillColor('#555555').text(`Notes: ${item.notes}`, textX, doc.y)
-            currentY = doc.y
-            doc.fontSize(baseFontSize).fillColor('#000000')
-          }
-
-          doc.x = baseX
-          doc.y = Math.max(currentY, baseY + lineHeight)
-          if (!item.notes) {
-            doc.fontSize(baseFontSize).fillColor('#000000')
-          }
-        } else {
-          const statusLabel = STATUS_LABELS[status]
-          const labelText = `[${statusLabel}]`
-          const labelX = doc.x
-          doc.text(`${labelText} ${item.item_text}`)
-
-          if (item.notes) {
-            doc.fontSize(9).fillColor('#555555').text(`Notes: ${item.notes}`, {
-              indent: doc.widthOfString(`${labelText} `)
-            })
-          }
-
-          doc.fontSize(baseFontSize).fillColor('#000000')
-          doc.x = labelX
+    orderedKeys.forEach(key => {
+      const list = (grouped.get(key) ?? []).slice().sort((a, b) => a.sortOrder - b.sortOrder)
+      if (doc.y > doc.page.height - 120) doc.addPage()
+      doc.moveDown(0.3)
+      doc.font('Helvetica-Bold').fontSize(12).fillColor('#1a293b').text(categoryLabel(key))
+      doc.moveDown(0.2)
+      list.forEach(item => {
+        if (doc.y > doc.page.height - 90) doc.addPage()
+        const isIssue = item.status === 'issue'
+        const y = doc.y
+        doc.font('Helvetica-Bold').fontSize(9).fillColor(isIssue ? '#b91c1c' : '#374151')
+        doc.text(`[${STATUS_PDF_LABEL[item.status]}]`, left, y, { width: 90 })
+        doc.font('Helvetica').fontSize(10).fillColor('#111111')
+        doc.text(item.label, left + 95, y, { width: contentWidth - 95 })
+        if (item.notes) {
+          doc.font('Helvetica-Oblique').fontSize(9).fillColor('#555555')
+          doc.text(`Notes: ${item.notes}`, left + 95, doc.y, { width: contentWidth - 95 })
         }
-
-        doc.moveDown(0.2)
+        doc.moveDown(0.3)
       })
-      doc.moveDown(0.5)
     })
 
-    const hasTemperatures = Object.values(temperatures).some(value => value && value.trim() !== '')
-    if (hasTemperatures) {
-      doc.fontSize(12).fillColor('#000000').text('Interior Temperature Levels', { underline: true })
-      doc.moveDown(0.25)
-      doc.fontSize(10)
-        .text(`Garage / Storage: ${temperatures.garage ?? 'Not recorded'}`)
-        .text(`Main Floor: ${temperatures.mainFloor ?? 'Not recorded'}`)
-        .text(`2nd Floor / 2nd Zone: ${temperatures.secondFloor ?? 'Not recorded'}`)
-        .text(`3rd Floor: ${temperatures.thirdFloor ?? 'Not recorded'}`)
-      doc.moveDown(0.75)
-    }
+    // Comments
+    doc.moveDown(0.5)
+    if (doc.y > doc.page.height - 120) doc.addPage()
+    doc.font('Helvetica-Bold').fontSize(12).fillColor('#1a293b').text('Inspector comments')
+    doc.font('Helvetica').fontSize(10).fillColor('#111111').text(report.comments || 'None provided.', { width: contentWidth })
 
-    doc.fontSize(12).fillColor('#000000').text('Comments and Photos', { underline: true })
-    doc.moveDown(0.15)
-    doc.fontSize(9).fillColor('#555555').text(
-      `PROPERTY INSPECTIONS & SERVICES — Phone: ${COMPANY_PHONE} — Email: ${COMPANY_SECONDARY_EMAIL}`
-    )
-    doc.moveDown(0.25)
-    doc.fontSize(10).fillColor('#000000').text(comments || 'None provided.', {
-      align: 'left'
-    })
-
+    // Photos appendix
     if (photos.length > 0) {
-      const renderPhotosHeader = () => {
-        doc.fontSize(16).fillColor('#000000').text('Inspection Photos', { align: 'center' })
-        doc.moveDown(0.75)
-      }
-
-      const ensureSpace = (required: number) => {
-        const bottom = doc.page.height - doc.page.margins.bottom
-        if (doc.y + required > bottom) {
-          doc.addPage()
-          renderPhotosHeader()
-        }
-      }
-
       doc.addPage()
-      renderPhotosHeader()
-
-      const photosByCategory = new Map<string, PhotoAttachment[]>()
+      doc.font('Helvetica-Bold').fontSize(16).fillColor('#1a293b').text('Inspection photos', { align: 'center' })
+      doc.moveDown(0.5)
       photos.forEach(photo => {
-        const key = photo.categoryKey || 'general'
-        const existing = photosByCategory.get(key)
-        if (existing) {
-          existing.push(photo)
-        } else {
-          photosByCategory.set(key, [photo])
+        if (doc.y > doc.page.height - 240) doc.addPage()
+        doc.font('Helvetica').fontSize(9).fillColor('#555555').text(photo.itemLabel)
+        try {
+          doc.image(photo.buffer, { fit: [contentWidth, 280], align: 'center' })
+        } catch {
+          doc.fillColor('#999999').text('(image could not be rendered)')
         }
-      })
-
-      const orderedPhotoCategoryKeys = [
-        ...CATEGORY_ORDER,
-        ...Array.from(photosByCategory.keys()).filter(key => !CATEGORY_ORDER.includes(key))
-      ].filter(key => photosByCategory.has(key))
-
-      orderedPhotoCategoryKeys.forEach(categoryKey => {
-        const categoryPhotos = photosByCategory.get(categoryKey)
-        if (!categoryPhotos || categoryPhotos.length === 0) {
-          return
-        }
-
-        ensureSpace(80)
-
-        const categoryLabel = categoryPhotos[0]?.categoryLabel ?? formatCategoryLabel(categoryKey)
-        doc.fontSize(13).fillColor('#000000').text(categoryLabel, { underline: true })
-        doc.moveDown(0.4)
-
-        const photosByItem = new Map<string, PhotoAttachment[]>()
-        categoryPhotos.forEach(photo => {
-          const itemKey = photo.itemLabel || 'Checklist Item'
-          const existing = photosByItem.get(itemKey)
-          if (existing) {
-            existing.push(photo)
-          } else {
-            photosByItem.set(itemKey, [photo])
-          }
-        })
-
-        photosByItem.forEach((assets, itemLabel) => {
-          ensureSpace(60)
-          doc.fontSize(11).fillColor('#000000').text(itemLabel)
-          doc.moveDown(0.25)
-
-          assets.forEach(asset => {
-            ensureSpace(340)
-            try {
-              drawCenteredImage(asset.buffer, getContentWidth(), 300, 18)
-            } catch (error) {
-              console.warn('Checklist PDF failed to embed inspection photo', { filename: asset.filename, error })
-              doc.fillColor('#b91c1c').fontSize(9).text('Unable to display this photo in the PDF.')
-              doc.moveDown(0.5)
-              doc.fillColor('#000000')
-            }
-          })
-
-          doc.moveDown(0.35)
-        })
-
-        doc.moveDown(0.65)
+        doc.moveDown(0.8)
       })
     }
 
@@ -920,14 +271,12 @@ async function generateChecklistPdf({
   })
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export async function POST(request: NextRequest, context: { params: Promise<any> }) {
-  const params = await context.params
-  const id = extractChecklistId(params)
-
-  if (!id) {
-    return NextResponse.json({ error: 'Invalid checklist identifier.' }, { status: 400 })
-  }
+// ---------------------------------------------------------------------------
+// Route
+// ---------------------------------------------------------------------------
+export async function POST(request: NextRequest, context: { params: Promise<{ id: string }> }) {
+  const { id } = await context.params
+  if (!id) return NextResponse.json({ error: 'Invalid checklist id.' }, { status: 400 })
 
   let payload: { email?: string } = {}
   try {
@@ -935,64 +284,32 @@ export async function POST(request: NextRequest, context: { params: Promise<any>
   } catch {
     payload = {}
   }
-
   const requestedEmail = typeof payload.email === 'string' ? payload.email.trim() : ''
 
   try {
     const supabase = await createSupabaseServerClient()
 
-    const { data, error } = await supabase
-      .from('checklists')
-      .select(`
-        id,
-        notes,
-        visit_date,
-        created_at,
-        properties:properties!checklists_property_id_fkey (
-          id,
-          name,
-          address,
-          client_id,
-          client:clients!properties_client_id_fkey (
-            id,
-            name,
-            email,
-            phone
-          )
-        ),
-        checklist_items (
-          id,
-          category,
-          item_text,
-          status,
-          notes,
-          checklist_photos (
-            id,
-            storage_path
-          )
-        )
-      `)
-      .eq('id', id)
-      .maybeSingle<ChecklistWithRelations>()
+    const {
+      data: { user }
+    } = await supabase.auth.getUser()
+    if (!user) return NextResponse.json({ error: 'You must be signed in.' }, { status: 401 })
 
+    const { data, error } = await supabase.from('checklists').select(FULL_SELECT).eq('id', id).maybeSingle()
     if (error) {
-      console.error('Failed to load checklist for email', error)
+      console.error('Email route: failed to load checklist', error)
       return NextResponse.json({ error: 'Unable to load checklist data.' }, { status: 500 })
     }
+    if (!data) return NextResponse.json({ error: 'Checklist not found.' }, { status: 404 })
 
-    if (!data) {
-      return NextResponse.json({ error: 'Checklist not found.' }, { status: 404 })
-    }
+    const row = data as any
+    const property = firstRelation<any>(row.property)
+    const client = firstRelation<any>(property?.client)
+    const inspector = firstRelation<any>(row.inspector)
 
-  const checklist = data
-  let meta = parseMeta(checklist.notes)
-    const property = checklist.properties
-    const recipientEmail = requestedEmail || meta.email || property?.client?.email
-
+    const recipientEmail = requestedEmail || client?.email || ''
     if (!recipientEmail) {
       return NextResponse.json({ error: 'No recipient email is available for this checklist.' }, { status: 400 })
     }
-
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(recipientEmail)) {
       return NextResponse.json({ error: 'Recipient email address is invalid.' }, { status: 400 })
     }
@@ -1006,129 +323,116 @@ export async function POST(request: NextRequest, context: { params: Promise<any>
       ? ['true', '1', 'yes'].includes(process.env.SMTP_SECURE.toLowerCase())
       : smtpPort === 465
 
-    if (!smtpHost || !smtpPort || !smtpUser || !smtpPass || !emailFrom) {
+    if (!smtpHost || !smtpUser || !smtpPass || !emailFrom) {
       return NextResponse.json(
-        {
-          error:
-            'Email sending is not configured. Set SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, and EMAIL_FROM environment variables.'
-        },
+        { error: 'Email sending is not configured. Set SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, and EMAIL_FROM.' },
         { status: 500 }
       )
     }
 
-    const checklistItems = checklist.checklist_items ?? []
-    const photoAttachments = await collectPhotoAttachments(supabase, checklistItems)
-    const isImageAttachment = (attachment: PhotoAttachment) => {
-      if (attachment.contentType && attachment.contentType.toLowerCase().startsWith('image/')) {
-        return true
+    // Build the report model
+    const counts: Record<ChecklistItemStatus, number> = { done: 0, issue: 0, na: 0, unchecked: 0 }
+    const items: ReportItem[] = (row.checklist_items ?? []).map((item: any) => {
+      const status = (item.status ?? 'unchecked') as ChecklistItemStatus
+      if (status in counts) counts[status] += 1
+      return {
+        label: item.item_text,
+        category: item.category || 'general',
+        status,
+        notes: item.notes,
+        sortOrder: item.sort_order ?? templateSortOrder(item.item_key, item.item_text)
       }
+    })
+    items.sort((a, b) => a.sortOrder - b.sortOrder)
 
-      return /\.(?:png|jpe?g|webp|gif|bmp|heic|heif)$/i.test(attachment.filename)
+    const temps = [
+      ['Garage / Storage', row.temp_garage],
+      ['Main floor', row.temp_main_floor],
+      ['2nd floor', row.temp_second_floor],
+      ['3rd floor', row.temp_third_floor]
+    ]
+      .filter(([, value]) => value && String(value).trim())
+      .map(([label, value]) => ({ label: label as string, value: String(value) }))
+
+    // Collect photos (capped)
+    const photos: ReportPhoto[] = []
+    outer: for (const item of row.checklist_items ?? []) {
+      for (const photo of item.checklist_photos ?? []) {
+        if (photos.length >= MAX_EMBEDDED_PHOTOS) break outer
+        if (!photo?.storage_path) continue
+        const buffer = await downloadPhoto(supabase, photo.storage_path)
+        if (buffer) photos.push({ buffer, itemLabel: item.item_text })
+      }
     }
 
-    const imageAttachments = photoAttachments.filter(isImageAttachment)
-    const nonImageAttachments = photoAttachments.filter(attachment => !isImageAttachment(attachment))
+    const report: Report = {
+      clientName: client?.name || property?.name || 'Not specified',
+      propertyAddress: property?.address || 'Not provided',
+      inspectorName: inspector?.name || 'Not recorded',
+      clientPhone: client?.phone || '',
+      clientEmail: client?.email || '',
+      visitDate: row.visit_date ?? row.created_at,
+      comments: row.comments || '',
+      temps,
+      items,
+      counts
+    }
 
-    const pdfBuffer = await generateChecklistPdf({
-      checklist,
-      meta,
-      property,
-      items: checklistItems,
-      photos: imageAttachments
-    })
+    const pdfBuffer = await generatePdf(report, photos)
+
+    const visitLabel = formatDate(report.visitDate)
+    const subject = `Home Watch Report — ${report.propertyAddress} (${visitLabel})`
+    const fileSafe = report.propertyAddress.replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '').slice(0, 60) || 'inspection'
 
     const transporter = nodemailer.createTransport({
       host: smtpHost,
       port: smtpPort,
       secure: smtpSecure,
-      auth: {
-        user: smtpUser,
-        pass: smtpPass
-      }
+      auth: { user: smtpUser, pass: smtpPass }
     })
 
-    const clientName = meta.clientName ?? property?.client?.name ?? property?.name ?? 'Client'
-    const visitDateValue = checklist.visit_date ?? checklist.created_at
-    const formattedDate = visitDateValue ? new Date(visitDateValue).toLocaleDateString() : ''
-    const subjectSegments = ['Home Watch Checklist']
-    if (clientName) subjectSegments.push(clientName)
-    if (formattedDate) subjectSegments.push(formattedDate)
+    const html = `
+      <div style="font-family:Arial,Helvetica,sans-serif;color:#1a293b;line-height:1.5;max-width:560px">
+        <h2 style="margin:0 0 4px">${COMPANY.name}</h2>
+        <p style="margin:0 0 16px;color:#555">Home Watch Inspection Report</p>
+        <p>Hello${report.clientName && report.clientName !== 'Not specified' ? ` ${report.clientName}` : ''},</p>
+        <p>Attached is the inspection report for <strong>${report.propertyAddress}</strong> from your visit on <strong>${visitLabel}</strong>.</p>
+        <p style="margin:16px 0;padding:12px 16px;background:#f5fafc;border-radius:8px">
+          <strong>${report.counts.done}</strong> items completed
+          ${report.counts.issue > 0 ? ` · <strong style="color:#b91c1c">${report.counts.issue} issue(s) flagged</strong>` : ''}
+        </p>
+        <p>If you have any questions, just reply to this email or call us at ${COMPANY.phone}.</p>
+        <p style="margin-top:24px;color:#555">— ${COMPANY.name}</p>
+      </div>
+    `
 
-    const subject = subjectSegments.join(' – ')
-    const bodyLines = [
-      'Attached is the completed Home Watch Checklist.',
-      '',
-      `Client: ${clientName || 'Not specified'}`,
-      `Property: ${meta.address ?? property?.address ?? 'Not specified'}`,
-      `Visit date: ${formattedDate || 'Not recorded'}`
-    ]
-
-    const clientPhoneContact = meta.phone ?? property?.client?.phone
-    const clientEmailContact = meta.email ?? property?.client?.email
-
-    if (clientPhoneContact) {
-      bodyLines.push(`Client phone: ${clientPhoneContact}`)
-    }
-
-    if (clientEmailContact) {
-      bodyLines.push(`Client email: ${clientEmailContact}`)
-    }
-
-    if (imageAttachments.length > 0) {
-      bodyLines.push('', 'Inspection photos are included in the attached PDF report.')
-    }
-
-    const clientSlug = clientName ? sanitizeSegment(clientName) : ''
-    const formattedDateSlug = formattedDate ? sanitizeSegment(formattedDate.replace(/\//g, '-')) : ''
-    const pdfFilename = buildFilename(
-      `Checklist-${clientSlug || 'Client'}-${formattedDateSlug || 'Visit'}.pdf`,
-      'checklist-report',
-      'application/pdf'
-    )
-
-    const attachments = [
-      {
-        filename: pdfFilename,
-        content: pdfBuffer,
-        contentType: 'application/pdf'
-      },
-      ...nonImageAttachments.map(photo => ({
-        filename: photo.filename,
-        content: photo.buffer,
-        contentType: photo.contentType
-      }))
-    ]
-
-    await transporter.sendMail({
+    const mailOptions = {
       from: emailFrom,
       to: recipientEmail,
       subject,
-      text: bodyLines.join('\n'),
-      attachments
-    })
-
-    const emailSentAtIso = new Date().toISOString()
-    const updatedMeta = {
-      ...meta,
-      emailSentAt: emailSentAtIso,
-      emailSentTo: recipientEmail
+      html,
+      text: `Attached is the home watch inspection report for ${report.propertyAddress} (visit on ${visitLabel}). ${report.counts.done} items completed${report.counts.issue > 0 ? `, ${report.counts.issue} issue(s) flagged` : ''}. — ${COMPANY.name}, ${COMPANY.phone}`,
+      attachments: [{ filename: `home-watch-report-${fileSafe}.pdf`, content: pdfBuffer }]
     }
+    await transporter.sendMail(mailOptions)
 
-    const { error: notesUpdateError } = await supabase
+    // Record the send on real columns.
+    const sentAt = new Date().toISOString()
+    const { error: updateError } = await supabase
       .from('checklists')
-      .update({ notes: JSON.stringify(updatedMeta) })
+      .update({ email_sent_at: sentAt, email_sent_to: recipientEmail })
       .eq('id', id)
+    if (updateError) console.warn('Email sent but failed to record status', updateError)
 
-    if (notesUpdateError) {
-      console.error('Failed to record email metadata on checklist', notesUpdateError)
-    } else {
-      meta = updatedMeta
-    }
+    revalidatePath(`/checklists/${id}`)
+    revalidatePath('/dashboard')
+    revalidatePath('/checklists')
 
-    return NextResponse.json({ success: true })
+    return NextResponse.json({ ok: true, sentTo: recipientEmail, sentAt })
   } catch (error) {
-    console.error('Failed to email checklist PDF', error)
-    const message = error instanceof Error ? error.message : 'Failed to send checklist email.'
+    console.error('Email route failed', error)
+    const message = error instanceof Error ? error.message : 'Failed to email the checklist.'
     return NextResponse.json({ error: message }, { status: 500 })
   }
 }
+/* eslint-enable @typescript-eslint/no-explicit-any */

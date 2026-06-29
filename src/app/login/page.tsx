@@ -2,11 +2,11 @@
 'use client'
 
 import { Suspense, useMemo, useState } from 'react'
-import { useRouter, useSearchParams } from 'next/navigation'
+import { useSearchParams } from 'next/navigation'
 import { getSupabaseClient } from '@/lib/supabaseClient'
+import { COMPANY } from '@/lib/constants'
 
 function LoginContent() {
-  const router = useRouter()
   const searchParams = useSearchParams()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -26,61 +26,55 @@ function LoginContent() {
 
     if (error) {
       setError(error.message)
-    } else {
-      // Get the redirect URL from search params or default to dashboard
-      const redirectTo = searchParams.get('redirectTo') || '/dashboard'
-      router.replace(redirectTo)
-      router.refresh() // Refresh the page to update server components
+      setLoading(false)
+      return
     }
-    setLoading(false)
+
+    // Hard navigation guarantees the freshly-set auth cookie is sent with the
+    // next request, so the middleware sees the session and won't bounce back to
+    // login. (A client-side router.replace can race the cookie write and freeze.)
+    const redirectTo = searchParams.get('redirectTo') || '/dashboard'
+    window.location.assign(redirectTo)
   }
 
+  const inputClass =
+    'mt-1 w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm shadow-sm transition focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/30'
+
   return (
-    <div className="flex items-center justify-center min-h-screen bg-gray-100">
-      <div className="w-full max-w-md p-8 space-y-6 bg-white rounded-2xl shadow-lg">
-        <h1 className="text-3xl font-bold text-center text-gray-900">239 Home Services</h1>
-        <h2 className="text-xl font-semibold text-center text-gray-600">Sign In</h2>
-        <form onSubmit={handleLogin} className="space-y-6">
-          <div>
-            <label htmlFor="email" className="block text-sm font-medium text-gray-700">
-              Email
-            </label>
-            <input
-              id="email"
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              required
-              className="w-full px-3 py-2 mt-1 border border-gray-300 rounded-md shadow-sm focus:ring-primary-500 focus:border-primary-500"
-            />
+    <div className="flex min-h-screen items-center justify-center bg-gradient-to-b from-primary-50 to-gray-100 px-4">
+      <div className="w-full max-w-md">
+        <div className="mb-6 flex flex-col items-center gap-3">
+          <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-primary-700 text-lg font-bold text-white shadow-sm">239</span>
+          <div className="text-center">
+            <h1 className="text-2xl font-bold text-gray-900">{COMPANY.name}</h1>
+            <p className="text-sm text-gray-500">Home Watch CRM</p>
           </div>
-          <div>
-            <label
-              htmlFor="password"
-              className="block text-sm font-medium text-gray-700"
-            >
-              Password
-            </label>
-            <input
-              id="password"
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-              className="w-full px-3 py-2 mt-1 border border-gray-300 rounded-md shadow-sm focus:ring-primary-500 focus:border-primary-500"
-            />
-          </div>
-          {error && <p className="text-sm text-red-600">{error}</p>}
-          <div>
+        </div>
+
+        <div className="rounded-2xl border border-gray-200 bg-white p-8 shadow-lg">
+          <h2 className="text-lg font-semibold text-gray-900">Sign in</h2>
+          <p className="mt-1 text-sm text-gray-500">Welcome back. Enter your staff credentials.</p>
+          <form onSubmit={handleLogin} className="mt-6 space-y-4">
+            <div>
+              <label htmlFor="email" className="block text-sm font-medium text-gray-700">Email</label>
+              <input id="email" type="email" autoComplete="email" value={email} onChange={e => setEmail(e.target.value)} required className={inputClass} />
+            </div>
+            <div>
+              <label htmlFor="password" className="block text-sm font-medium text-gray-700">Password</label>
+              <input id="password" type="password" autoComplete="current-password" value={password} onChange={e => setPassword(e.target.value)} required className={inputClass} />
+            </div>
+            {error && <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">{error}</p>}
             <button
               type="submit"
               disabled={loading}
-              className="w-full px-4 py-2 font-semibold text-white bg-primary-700 rounded-md hover:bg-primary-800 disabled:bg-primary-400 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500"
+              className="w-full rounded-lg bg-primary-700 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-primary-800 disabled:bg-primary-400"
             >
-              {loading ? 'Signing In...' : 'Sign In'}
+              {loading ? 'Signing in…' : 'Sign in'}
             </button>
-          </div>
-        </form>
+          </form>
+        </div>
+
+        <p className="mt-6 text-center text-xs text-gray-400">{COMPANY.phone} · {COMPANY.email}</p>
       </div>
     </div>
   )

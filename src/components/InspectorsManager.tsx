@@ -2,25 +2,8 @@
 
 import { useMemo, useState } from 'react'
 import Modal from '@/components/Modal'
+import { PlusIcon, UserCheckIcon, TrashIcon } from '@/components/icons'
 import { getSupabaseClient, type Inspector } from '@/lib/supabaseClient'
-
-function formatDisplayDate(value: string | null | undefined) {
-  if (!value) return '—'
-  try {
-    const date = new Date(value)
-    if (Number.isNaN(date.getTime())) {
-      return value
-    }
-    return new Intl.DateTimeFormat('en-US', {
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric'
-    }).format(date)
-  } catch (error) {
-    console.warn('Failed to format inspector date', { value, error })
-    return value ?? '—'
-  }
-}
 
 type InspectorsManagerProps = {
   initialInspectors: Inspector[]
@@ -163,17 +146,17 @@ export default function InspectorsManager({ initialInspectors, fetchError }: Ins
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Inspectors</h1>
-          <p className="text-sm text-gray-600">Manage the inspectors available when capturing a checklist.</p>
+          <h1 className="text-2xl font-bold text-gray-900 md:text-3xl">Inspectors</h1>
+          <p className="mt-1 text-sm text-gray-600">The inspectors available when capturing a checklist.</p>
         </div>
         <button
           type="button"
           onClick={handleOpenModal}
-          className="inline-flex items-center justify-center rounded-lg bg-primary-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-primary-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-500"
+          className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-primary-700 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-primary-800 sm:w-auto"
         >
-          + Add inspector
+          <PlusIcon className="h-4 w-4" /> Add inspector
         </button>
       </div>
 
@@ -192,24 +175,27 @@ export default function InspectorsManager({ initialInspectors, fetchError }: Ins
       )}
 
       {hasInspectors ? (
-        <div className="space-y-3">
+        <div className="grid gap-3 sm:grid-cols-2">
           {sortedInspectors.map(inspector => (
             <div
               key={inspector.id}
-              className="flex items-start justify-between rounded-xl border border-gray-200 bg-white p-4 transition hover:border-primary-200"
+              className="flex items-start gap-3 rounded-xl border border-gray-200 bg-white p-4 transition hover:border-primary-200"
             >
-              <div className="space-y-1">
-                <p className="text-base font-semibold text-gray-900">{inspector.name}</p>
-                {inspector.email && <p className="text-sm text-gray-600">Email: {inspector.email}</p>}
-                {inspector.phone && <p className="text-sm text-gray-600">Phone: {inspector.phone}</p>}
-                <p className="text-xs text-gray-500">Created {formatDisplayDate(inspector.created_at)}</p>
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary-100 text-sm font-semibold uppercase text-primary-700">
+                {inspector.name?.trim().charAt(0) || '?'}
+              </span>
+              <div className="min-w-0 flex-1 space-y-0.5">
+                <p className="truncate font-semibold text-gray-900">{inspector.name}</p>
+                {inspector.email && <p className="truncate text-sm text-gray-600">{inspector.email}</p>}
+                {inspector.phone && <p className="truncate text-sm text-gray-600">{inspector.phone}</p>}
               </div>
               <button
                 type="button"
                 onClick={() => handleDeleteInspector(inspector.id)}
                 disabled={deleteState[inspector.id]}
-                className="inline-flex items-center justify-center rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-600 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60"
+                className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-600 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60"
               >
+                <TrashIcon className="h-4 w-4" />
                 {deleteState[inspector.id] ? 'Deleting…' : 'Delete'}
               </button>
             </div>
@@ -217,14 +203,17 @@ export default function InspectorsManager({ initialInspectors, fetchError }: Ins
         </div>
       ) : (
         <div className="rounded-2xl border border-dashed border-gray-300 bg-white p-10 text-center">
-          <h2 className="text-lg font-semibold text-gray-900">No inspectors yet</h2>
-          <p className="mt-2 text-sm text-gray-600">Add your inspectors so they can be selected on new checklists.</p>
+          <span className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-primary-50 text-primary-700">
+            <UserCheckIcon className="h-6 w-6" />
+          </span>
+          <h2 className="mt-3 text-lg font-semibold text-gray-900">No inspectors yet</h2>
+          <p className="mt-1 text-sm text-gray-600">Add your inspectors so they can be selected on new checklists.</p>
           <button
             type="button"
             onClick={handleOpenModal}
-            className="mt-4 inline-flex items-center justify-center rounded-lg bg-primary-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-primary-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-500"
+            className="mt-4 inline-flex items-center gap-2 rounded-lg bg-primary-700 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-primary-800"
           >
-            Add your first inspector
+            <PlusIcon className="h-4 w-4" /> Add your first inspector
           </button>
         </div>
       )}
