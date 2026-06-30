@@ -26,6 +26,30 @@ body {
   outline-offset: 2px;
 }
 
+/* Make every control feel responsive to touch: remove the grey iOS tap
+   flash and the 300ms tap delay so taps register instantly. */
+button,
+a,
+[role='button'],
+label,
+summary,
+input[type='submit'] {
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+/* On touch devices (no hover), give a quick "pressed in" cue on tap, since
+   hover: styles never trigger there. Inline links are unaffected (transform
+   only applies to block/flex elements like cards and buttons). */
+@media (hover: none) and (pointer: coarse) {
+  a:active,
+  button:active,
+  [role='button']:active {
+    transform: scale(0.97);
+    transition: transform 0.06s ease;
+  }
+}
+
 input[type='date'] {
   min-height: 2.5rem;
 }
