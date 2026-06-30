@@ -51,5 +51,11 @@ export async function middleware(req: NextRequest) {
 }
 
 export const config = {
+  // Run on the Node.js runtime rather than the Edge runtime. The Supabase SSR
+  // client pulls in @supabase/realtime-js, which uses dynamic code evaluation
+  // and Node-only APIs (process.versions) that the Edge runtime forbids —
+  // under Edge the middleware throws "EvalError: Code generation from strings
+  // disallowed" on every request, returning an unstyled 500 page.
+  runtime: 'nodejs',
   matcher: ['/((?!_next/static|_next/image|favicon.ico|api/auth).*)']
 }
