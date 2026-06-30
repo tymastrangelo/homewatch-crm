@@ -592,7 +592,7 @@ export default function ChecklistForm({ defaultData }: { defaultData?: Checklist
 
       {error && <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div>}
 
-      <div className="sticky bottom-0 flex flex-col gap-3 border-t border-gray-200 bg-gray-50/95 py-4 backdrop-blur sm:flex-row sm:justify-end">
+      <div className="sticky bottom-0 flex flex-col gap-3 border-t border-gray-200 bg-gray-50/95 pt-4 pb-[max(1rem,env(safe-area-inset-bottom))] backdrop-blur sm:flex-row sm:justify-end">
         <Link href={isEditing ? `/checklists/${defaultData?.checklistId}` : '/dashboard'} className="inline-flex items-center justify-center rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50">
           Cancel
         </Link>
