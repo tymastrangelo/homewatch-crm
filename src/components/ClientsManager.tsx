@@ -345,7 +345,7 @@ export default function ClientsManager({ initialClients, fetchError }: ClientsMa
               key={client.id}
               type="button"
               onClick={() => handleOpenViewModal(client.id)}
-              className="flex items-center gap-3 rounded-xl border border-gray-200 bg-white p-4 text-left transition hover:border-primary-300 hover:shadow-sm"
+              className="flex min-w-0 items-center gap-3 rounded-xl border border-gray-200 bg-white p-4 text-left transition hover:border-primary-300 hover:shadow-sm"
             >
               <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary-100 text-sm font-semibold uppercase text-primary-700">
                 {client.name.trim().charAt(0) || '?'}

@@ -179,7 +179,7 @@ export default function InspectorsManager({ initialInspectors, fetchError }: Ins
           {sortedInspectors.map(inspector => (
             <div
               key={inspector.id}
-              className="flex items-start gap-3 rounded-xl border border-gray-200 bg-white p-4 transition hover:border-primary-200"
+              className="flex min-w-0 items-start gap-3 rounded-xl border border-gray-200 bg-white p-4 transition hover:border-primary-200"
             >
               <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary-100 text-sm font-semibold uppercase text-primary-700">
                 {inspector.name?.trim().charAt(0) || '?'}
