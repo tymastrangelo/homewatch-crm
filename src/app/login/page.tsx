@@ -2,6 +2,7 @@
 'use client'
 
 import { Suspense, useMemo, useState } from 'react'
+import Image from 'next/image'
 import { useSearchParams } from 'next/navigation'
 import { getSupabaseClient } from '@/lib/supabaseClient'
 import { COMPANY } from '@/lib/constants'
@@ -38,43 +39,79 @@ function LoginContent() {
   }
 
   const inputClass =
-    'mt-1 w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm shadow-sm transition focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/30'
+    'mt-1.5 min-h-12 w-full rounded-xl border border-gray-300 px-3.5 py-2.5 text-sm shadow-sm transition placeholder:text-gray-300 focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/30'
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gradient-to-b from-primary-50 to-gray-100 px-4">
-      <div className="w-full max-w-md">
-        <div className="mb-6 flex flex-col items-center gap-3">
-          <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-primary-700 text-lg font-bold text-white shadow-sm">239</span>
-          <div className="text-center">
-            <h1 className="text-2xl font-bold text-gray-900">{COMPANY.name}</h1>
-            <p className="text-sm text-gray-500">Home Watch CRM</p>
+    // The navy field + sky keyline: the same signature band the PDF report
+    // carries, so the tool and its deliverable read as one identity.
+    <div className="relative flex min-h-dvh flex-col overflow-hidden bg-[#16233b]">
+      <div className="h-1.5 w-full bg-primary-400" aria-hidden />
+      {/* Oversized house-key mark as a quiet watermark on the navy field. */}
+      <Image
+        src="/logo-mark.png"
+        alt=""
+        width={229}
+        height={256}
+        aria-hidden
+        className="pointer-events-none absolute -bottom-20 -left-16 w-[380px] select-none opacity-[0.06]"
+      />
+
+      <div className="flex flex-1 items-center justify-center px-4 py-10">
+        <div className="w-full max-w-sm">
+          <div className="rounded-3xl bg-white p-7 shadow-2xl shadow-black/40 sm:p-9">
+            <div className="flex justify-center">
+              <Image src="/logo.png" alt="239 Home Services" width={210} height={118} priority className="h-auto w-48" />
+            </div>
+
+            <div className="mb-6 mt-7 flex items-center gap-3" aria-hidden>
+              <span className="h-px flex-1 bg-gray-200" />
+              <span className="text-[10px] font-semibold uppercase tracking-[0.22em] text-gray-400">Staff sign in</span>
+              <span className="h-px flex-1 bg-gray-200" />
+            </div>
+
+            <form onSubmit={handleLogin} className="space-y-4">
+              <div>
+                <label htmlFor="email" className="block text-sm font-medium text-gray-700">Email</label>
+                <input
+                  id="email"
+                  type="email"
+                  autoComplete="email"
+                  autoFocus
+                  placeholder="you@239homeservices.com"
+                  value={email}
+                  onChange={e => setEmail(e.target.value)}
+                  required
+                  className={inputClass}
+                />
+              </div>
+              <div>
+                <label htmlFor="password" className="block text-sm font-medium text-gray-700">Password</label>
+                <input
+                  id="password"
+                  type="password"
+                  autoComplete="current-password"
+                  placeholder="••••••••"
+                  value={password}
+                  onChange={e => setPassword(e.target.value)}
+                  required
+                  className={inputClass}
+                />
+              </div>
+              {error && <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">{error}</p>}
+              <button
+                type="submit"
+                disabled={loading}
+                className="!mt-6 min-h-12 w-full rounded-xl bg-primary-700 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-primary-800 disabled:bg-primary-400"
+              >
+                {loading ? 'Signing in…' : 'Sign in'}
+              </button>
+            </form>
           </div>
-        </div>
 
-        <div className="rounded-2xl border border-gray-200 bg-white p-8 shadow-lg">
-          <h2 className="text-lg font-semibold text-gray-900">Sign in</h2>
-          <p className="mt-1 text-sm text-gray-500">Welcome back. Enter your staff credentials.</p>
-          <form onSubmit={handleLogin} className="mt-6 space-y-4">
-            <div>
-              <label htmlFor="email" className="block text-sm font-medium text-gray-700">Email</label>
-              <input id="email" type="email" autoComplete="email" value={email} onChange={e => setEmail(e.target.value)} required className={inputClass} />
-            </div>
-            <div>
-              <label htmlFor="password" className="block text-sm font-medium text-gray-700">Password</label>
-              <input id="password" type="password" autoComplete="current-password" value={password} onChange={e => setPassword(e.target.value)} required className={inputClass} />
-            </div>
-            {error && <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">{error}</p>}
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full rounded-lg bg-primary-700 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-primary-800 disabled:bg-primary-400"
-            >
-              {loading ? 'Signing in…' : 'Sign in'}
-            </button>
-          </form>
+          <p className="mt-6 text-center text-xs text-primary-200/70">
+            {COMPANY.name} · {COMPANY.phone} · {COMPANY.email}
+          </p>
         </div>
-
-        <p className="mt-6 text-center text-xs text-gray-400">{COMPANY.phone} · {COMPANY.email}</p>
       </div>
     </div>
   )

@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { getSupabaseClient, type Client, type Inspector, type Property } from '@/lib/supabaseClient'
-import { CHECKLIST_PHOTO_BUCKET, COMPANY } from '@/lib/constants'
+import { CHECKLIST_PHOTO_BUCKET } from '@/lib/constants'
 import {
   CHECKLIST_TEMPLATE,
   CATEGORY_ORDER,
@@ -68,11 +68,18 @@ export type ChecklistFormDefaults = {
 type ClientOption = Client & { properties: Array<Pick<Property, 'id' | 'name' | 'address'>> }
 
 const STATUS_BUTTONS: Array<{ value: ChecklistItemStatus; label: string; active: string }> = [
-  { value: 'done', label: 'Done', active: 'bg-green-600 border-green-600 text-white' },
-  { value: 'issue', label: 'Issue', active: 'bg-red-600 border-red-600 text-white' },
-  { value: 'na', label: 'N/A', active: 'bg-gray-500 border-gray-500 text-white' },
-  { value: 'unchecked', label: 'Skip', active: 'bg-gray-200 border-gray-300 text-gray-700' }
+  { value: 'done', label: 'OK', active: 'bg-green-600 text-white' },
+  { value: 'issue', label: 'Issue', active: 'bg-red-600 text-white' },
+  { value: 'na', label: 'N/A', active: 'bg-slate-500 text-white' },
+  { value: 'unchecked', label: 'Skip', active: 'bg-gray-200 text-gray-700' }
 ]
+
+const ITEM_CARD_TONE: Record<ChecklistItemStatus, string> = {
+  done: 'border-green-200 bg-green-50/30',
+  issue: 'border-red-200 bg-red-50/40',
+  na: 'border-gray-100 bg-white opacity-75',
+  unchecked: 'border-gray-200 bg-white'
+}
 
 function uid() {
   if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) return crypto.randomUUID()
@@ -292,6 +299,13 @@ export default function ChecklistForm({ defaultData }: { defaultData?: Checklist
     setItems(prev => prev.map(item => ({ ...item, status })))
   }
 
+  /** Marks every still-unchecked item in a category OK — issues and N/A stay put. */
+  function markCategoryOk(category: string) {
+    setItems(prev =>
+      prev.map(item => (item.category === category && item.status === 'unchecked' ? { ...item, status: 'done' } : item))
+    )
+  }
+
   const grouped = useMemo(() => {
     const map = new Map<string, ItemState[]>()
     items.forEach(item => {
@@ -409,16 +423,32 @@ export default function ChecklistForm({ defaultData }: { defaultData?: Checklist
 
   return (
     <div className="mx-auto max-w-4xl space-y-6 p-4 md:p-6">
-      <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">{isEditing ? 'Edit checklist' : 'New home watch checklist'}</h1>
-          <p className="mt-1 text-sm text-gray-500">{COMPANY.name} · {COMPANY.phone}</p>
+      {/* Sticky progress: always visible while working down the list. */}
+      <div className="sticky top-0 z-20 -mx-4 -mt-4 border-b border-gray-200 bg-white/95 px-4 py-3 backdrop-blur md:-mx-6 md:-mt-6 md:px-6">
+        <div className="mx-auto flex max-w-4xl items-center gap-3">
+          <div className="min-w-0 flex-1">
+            <div className="flex items-baseline justify-between gap-2">
+              <h1 className="truncate text-base font-bold text-gray-900 md:text-lg">
+                {isEditing ? 'Edit checklist' : 'New checklist'}
+              </h1>
+              <p className="shrink-0 text-xs font-semibold tabular-nums text-gray-600">
+                {completed}/{items.length} checked
+              </p>
+            </div>
+            <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-gray-100">
+              <div
+                className={`h-full rounded-full transition-all duration-300 ${issues > 0 ? 'bg-red-500' : 'bg-primary-600'}`}
+                style={{ width: `${items.length ? Math.round((completed / items.length) * 100) : 0}%` }}
+              />
+            </div>
+          </div>
+          {issues > 0 && (
+            <span className="shrink-0 rounded-full border border-red-200 bg-red-50 px-2.5 py-1 text-xs font-semibold text-red-700">
+              {issues} issue{issues === 1 ? '' : 's'}
+            </span>
+          )}
         </div>
-        <div className="flex items-center gap-3 text-sm">
-          <span className="rounded-full border border-gray-200 bg-white px-3 py-1 text-gray-700">{completed}/{items.length} done</span>
-          {issues > 0 && <span className="rounded-full border border-red-200 bg-red-50 px-3 py-1 text-red-700">{issues} issue{issues === 1 ? '' : 's'}</span>}
-        </div>
-      </header>
+      </div>
 
       {/* Visit details */}
       <section className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm md:p-6">
@@ -507,31 +537,51 @@ export default function ChecklistForm({ defaultData }: { defaultData?: Checklist
 
       {/* Checklist items */}
       <section className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm md:p-6">
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-wrap items-center justify-between gap-2">
           <h2 className="text-lg font-semibold text-gray-900">Inspection checklist</h2>
-          <div className="flex items-center gap-2 text-xs">
-            <span className="text-gray-500">Mark all:</span>
-            <button type="button" onClick={() => bulkSet('done')} className="rounded-md border border-green-200 bg-green-50 px-2 py-1 font-medium text-green-700 hover:bg-green-100">Done</button>
-            <button type="button" onClick={() => bulkSet('unchecked')} className="rounded-md border border-gray-200 bg-gray-50 px-2 py-1 font-medium text-gray-600 hover:bg-gray-100">Reset</button>
-          </div>
+          <button
+            type="button"
+            onClick={() => bulkSet('unchecked')}
+            className="rounded-md border border-gray-200 bg-gray-50 px-2.5 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-100 active:bg-gray-200"
+          >
+            Reset all
+          </button>
         </div>
 
-        <div className="mt-4 space-y-6">
-          {grouped.map(group => (
+        <div className="mt-4 space-y-7">
+          {grouped.map(group => {
+            const remaining = group.items.filter(i => i.status === 'unchecked').length
+            return (
             <div key={group.key}>
-              <h3 className="mb-2 text-sm font-semibold uppercase tracking-wide text-gray-500">{categoryLabel(group.key)}</h3>
+              <div className="mb-2.5 flex items-center justify-between gap-2">
+                <h3 className="text-sm font-semibold uppercase tracking-wide text-gray-500">
+                  {categoryLabel(group.key)}
+                  <span className="ml-2 font-normal normal-case tabular-nums text-gray-400">
+                    {group.items.length - remaining}/{group.items.length}
+                  </span>
+                </h3>
+                {remaining > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => markCategoryOk(group.key)}
+                    className="rounded-md border border-green-200 bg-green-50 px-2.5 py-1.5 text-xs font-semibold text-green-700 hover:bg-green-100 active:bg-green-200"
+                  >
+                    Rest OK
+                  </button>
+                )}
+              </div>
               <div className="space-y-3">
                 {group.items.map(item => (
-                  <div key={item.uid} className={`rounded-xl border p-3 ${item.status === 'issue' ? 'border-red-200 bg-red-50/40' : 'border-gray-100 bg-white'}`}>
+                  <div key={item.uid} className={`rounded-xl border p-3 transition-colors ${ITEM_CARD_TONE[item.status]}`}>
                     <p className="text-sm font-medium text-gray-800">{item.label}</p>
-                    <div className="mt-2 flex flex-wrap gap-2">
-                      {STATUS_BUTTONS.map(btn => (
+                    <div className="mt-2.5 grid grid-cols-4 overflow-hidden rounded-xl border border-gray-200">
+                      {STATUS_BUTTONS.map((btn, i) => (
                         <button
                           key={btn.value}
                           type="button"
                           onClick={() => updateItem(item.uid, { status: btn.value })}
-                          className={`rounded-lg border px-3 py-1 text-sm font-medium transition ${
-                            item.status === btn.value ? btn.active : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50'
+                          className={`min-h-11 text-sm font-semibold transition-colors ${i > 0 ? 'border-l border-gray-200' : ''} ${
+                            item.status === btn.value ? btn.active : 'bg-white text-gray-500 hover:bg-gray-50 active:bg-gray-100'
                           }`}
                         >
                           {btn.label}
@@ -547,23 +597,27 @@ export default function ChecklistForm({ defaultData }: { defaultData?: Checklist
                         rows={2}
                       />
                     )}
-                    <div className="mt-2 flex flex-wrap items-center gap-2">
-                      <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50">
+                    <div className="mt-2.5 flex flex-wrap items-center gap-2">
+                      <label className="inline-flex min-h-9 cursor-pointer items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50 active:bg-gray-100">
                         <CameraIcon className="h-4 w-4" /> Add photo
                         <input hidden type="file" accept="image/*" multiple onChange={e => addPhotos(item.uid, e.target.files)} />
                       </label>
                       {item.notes === '' && item.status !== 'issue' && (
-                        <button type="button" onClick={() => updateItem(item.uid, { notes: ' ' })} className="text-xs text-primary-600 hover:underline">
+                        <button
+                          type="button"
+                          onClick={() => updateItem(item.uid, { notes: ' ' })}
+                          className="inline-flex min-h-9 items-center rounded-lg px-2 text-xs font-medium text-primary-700 hover:bg-primary-50 active:bg-primary-100"
+                        >
                           + Add note
                         </button>
                       )}
                       {item.photos.map(photo => (
                         <div key={photo.id} className="relative">
-                          <Image src={photo.previewUrl} alt="" width={64} height={64} unoptimized className="h-16 w-16 rounded-md border object-cover" />
+                          <Image src={photo.previewUrl} alt="" width={80} height={80} unoptimized className="h-20 w-20 rounded-lg border border-gray-200 object-cover" />
                           <button
                             type="button"
                             onClick={() => removePhoto(item.uid, photo)}
-                            className="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-red-600 text-xs text-white"
+                            className="absolute -right-2 -top-2 flex h-6 w-6 items-center justify-center rounded-full bg-red-600 text-sm text-white shadow"
                             aria-label="Remove photo"
                           >
                             ×
@@ -575,7 +629,8 @@ export default function ChecklistForm({ defaultData }: { defaultData?: Checklist
                 ))}
               </div>
             </div>
-          ))}
+            )
+          })}
         </div>
       </section>
 
@@ -592,15 +647,18 @@ export default function ChecklistForm({ defaultData }: { defaultData?: Checklist
 
       {error && <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div>}
 
-      <div className="sticky bottom-0 flex flex-col gap-3 border-t border-gray-200 bg-gray-50/95 pt-4 pb-[max(1rem,env(safe-area-inset-bottom))] backdrop-blur sm:flex-row sm:justify-end">
-        <Link href={isEditing ? `/checklists/${defaultData?.checklistId}` : '/dashboard'} className="inline-flex items-center justify-center rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50">
+      <div className="sticky bottom-0 flex items-center gap-3 border-t border-gray-200 bg-gray-50/95 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] backdrop-blur sm:justify-end">
+        <Link
+          href={isEditing ? `/checklists/${defaultData?.checklistId}` : '/dashboard'}
+          className="inline-flex min-h-12 items-center justify-center rounded-xl border border-gray-300 bg-white px-5 text-sm font-semibold text-gray-700 hover:bg-gray-50 active:bg-gray-100"
+        >
           Cancel
         </Link>
         <button
           type="button"
           onClick={handleSubmit}
           disabled={isSubmitting}
-          className="inline-flex items-center justify-center rounded-lg bg-primary-700 px-6 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-primary-800 disabled:cursor-not-allowed disabled:bg-primary-400"
+          className="inline-flex min-h-12 flex-1 items-center justify-center rounded-xl bg-primary-700 px-6 text-sm font-semibold text-white shadow-sm transition hover:bg-primary-800 disabled:cursor-not-allowed disabled:bg-primary-400 sm:flex-none"
         >
           {uploadProgress
             ? `Uploading photos ${uploadProgress.done}/${uploadProgress.total}…`

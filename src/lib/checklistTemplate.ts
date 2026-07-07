@@ -72,7 +72,7 @@ export function categoryLabel(key: string): string {
 }
 
 export const STATUS_LABELS: Record<ChecklistItemStatus, string> = {
-  done: 'Done',
+  done: 'OK',
   na: 'N/A',
   issue: 'Issue',
   unchecked: 'Not checked'

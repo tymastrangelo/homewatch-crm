@@ -59,3 +59,27 @@ input[type='submit'] {
 input[type='date'] {
   min-height: 2.5rem;
 }
+
+/* Bottom-sheet entrance for modals on phones (fades in as a dialog on
+   desktop, where the sheet slide would look out of place). */
+@keyframes sheet-up {
+  from { transform: translateY(24px); opacity: 0.4; }
+  to { transform: translateY(0); opacity: 1; }
+}
+.sheet-in {
+  animation: sheet-up 0.22s ease-out;
+}
+@media (prefers-reduced-motion: reduce) {
+  .sheet-in {
+    animation: none;
+  }
+}
+
+/* Horizontally scrollable chip rows (filters) without a visible scrollbar. */
+.no-scrollbar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}

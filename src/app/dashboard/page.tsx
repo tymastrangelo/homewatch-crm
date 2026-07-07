@@ -40,9 +40,9 @@ export default async function DashboardPage() {
       <SetupNotice status={status} />
 
       <section className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-        <Stat icon={<ClipboardListIcon className="h-5 w-5" />} label="Checklists logged" value={total} sub="All inspections on record" tone="primary" />
-        <Stat icon={<MailIcon className="h-5 w-5" />} label="Ready to email" value={pending.length} sub="Have a recipient, not yet sent" tone={pending.length > 0 ? 'amber' : 'gray'} href="#pending" />
-        <Stat icon={<AlertIcon className="h-5 w-5" />} label="Open issues" value={openIssues} sub="Flagged across all visits" tone={openIssues > 0 ? 'red' : 'gray'} />
+        <Stat icon={<ClipboardListIcon className="h-5 w-5" />} label="Checklists logged" value={total} sub="All inspections on record" tone="primary" href="/checklists" />
+        <Stat icon={<MailIcon className="h-5 w-5" />} label="Ready to email" value={pending.length} sub="Have a recipient, not yet sent" tone={pending.length > 0 ? 'amber' : 'gray'} href="/checklists?filter=pending" />
+        <Stat icon={<AlertIcon className="h-5 w-5" />} label="Open issues" value={openIssues} sub="Flagged across all visits" tone={openIssues > 0 ? 'red' : 'gray'} href="/checklists?filter=issues" />
         <Stat icon={<CalendarIcon className="h-5 w-5" />} label="Latest visit" value={latest ? formatDate(latest.visitDate ?? latest.createdAt) : '—'} sub={latest?.clientName ?? 'No visits yet'} tone="gray" small />
       </section>
 
@@ -123,9 +123,9 @@ function Stat({
     </div>
   )
   return href ? (
-    <a href={href} className="block">
+    <Link href={href} className="block">
       {content}
-    </a>
+    </Link>
   ) : (
     content
   )

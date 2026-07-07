@@ -9,12 +9,24 @@ const inter = Inter({ subsets: ["latin"] });
 export const metadata: Metadata = {
   title: "239 Home Services — Home Watch CRM",
   description: "Property inspection checklists and reports for 239 Home Services.",
+  manifest: "/manifest.webmanifest",
+  icons: {
+    apple: "/apple-touch-icon.png",
+  },
+  appleWebApp: {
+    capable: true,
+    title: "239 CRM",
+    statusBarStyle: "default",
+  },
 };
 
 // Tint the mobile browser chrome (iOS status bar / Safari toolbar) to match
 // the white app header instead of Safari's default grey.
 export const viewport: Viewport = {
   themeColor: "#ffffff",
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
 };
 
 export default function RootLayout({

@@ -128,6 +128,20 @@ export const TrashIcon = (p: IconProps) => (
   </svg>
 )
 
+export const DownloadIcon = (p: IconProps) => (
+  <svg {...base(p)}>
+    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+    <path d="m7 10 5 5 5-5M12 15V3" />
+  </svg>
+)
+
+export const FileTextIcon = (p: IconProps) => (
+  <svg {...base(p)}>
+    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z" />
+    <path d="M14 2v6h6M9 13h6M9 17h6" />
+  </svg>
+)
+
 export const CameraIcon = (p: IconProps) => (
   <svg {...base(p)}>
     <path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3Z" />

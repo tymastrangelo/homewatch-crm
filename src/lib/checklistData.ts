@@ -116,20 +116,41 @@ function firstRelation<T>(value: T | T[] | null | undefined): T | null {
   return value ?? null
 }
 
-async function resolvePhotoUrl(supabase: SupabaseClientType, storagePath: string | null): Promise<string | null> {
-  if (!storagePath) return null
-  if (/^https?:\/\//.test(storagePath)) return storagePath
+/**
+ * Signs every photo path in one storage call per bucket (createSignedUrls)
+ * instead of one round trip per photo. Returns storagePath → url.
+ */
+async function resolvePhotoUrls(supabase: SupabaseClientType, storagePaths: string[]): Promise<Map<string, string>> {
+  const urls = new Map<string, string>()
+  const byBucket = new Map<string, string[]>()
 
-  const [bucket, ...rest] = storagePath.split('/')
-  if (!bucket || rest.length === 0) return null
-  const objectPath = rest.join('/')
-
-  const { data, error } = await supabase.storage.from(bucket).createSignedUrl(objectPath, 60 * 60 * 6)
-  if (error) {
-    const { data: publicData } = supabase.storage.from(bucket).getPublicUrl(objectPath)
-    return publicData?.publicUrl ?? null
+  for (const storagePath of storagePaths) {
+    if (!storagePath) continue
+    if (/^https?:\/\//.test(storagePath)) {
+      urls.set(storagePath, storagePath)
+      continue
+    }
+    const [bucket, ...rest] = storagePath.split('/')
+    if (!bucket || rest.length === 0) continue
+    const list = byBucket.get(bucket) ?? []
+    list.push(rest.join('/'))
+    byBucket.set(bucket, list)
   }
-  return data?.signedUrl ?? null
+
+  for (const [bucket, objectPaths] of byBucket) {
+    const { data, error } = await supabase.storage.from(bucket).createSignedUrls(objectPaths, 60 * 60 * 6)
+    objectPaths.forEach((objectPath, i) => {
+      const signed = !error ? data?.[i]?.signedUrl : null
+      if (signed) {
+        urls.set(`${bucket}/${objectPath}`, signed)
+      } else {
+        const { data: publicData } = supabase.storage.from(bucket).getPublicUrl(objectPath)
+        if (publicData?.publicUrl) urls.set(`${bucket}/${objectPath}`, publicData.publicUrl)
+      }
+    })
+  }
+
+  return urls
 }
 
 export async function getChecklistSummaries(
@@ -191,26 +212,29 @@ export async function getChecklistView(
   const inspector = firstRelation<any>(row.inspector)
   const meta = legacyMeta(row.notes)
 
-  const items: ChecklistItemView[] = await Promise.all(
-    (row.checklist_items ?? []).map(async (item: any) => {
-      const photos = await Promise.all(
-        (item.checklist_photos ?? []).map(async (photo: any) => {
-          const url = await resolvePhotoUrl(supabase, photo.storage_path)
-          return url ? { id: photo.id, url, storagePath: photo.storage_path } : null
-        })
-      )
-      return {
-        id: item.id,
-        itemKey: item.item_key,
-        category: item.category || 'general',
-        label: item.item_text,
-        status: (item.status ?? 'unchecked') as ChecklistItemStatus,
-        notes: item.notes,
-        sortOrder: item.sort_order ?? templateSortOrder(item.item_key, item.item_text),
-        photos: photos.filter((p): p is ChecklistPhotoView => Boolean(p))
-      }
-    })
+  const allPaths: string[] = (row.checklist_items ?? []).flatMap((item: any) =>
+    (item.checklist_photos ?? []).map((photo: any) => photo.storage_path as string)
   )
+  const photoUrls = await resolvePhotoUrls(supabase, allPaths)
+
+  const items: ChecklistItemView[] = (row.checklist_items ?? []).map((item: any) => {
+    const photos = (item.checklist_photos ?? [])
+      .map((photo: any) => {
+        const url = photoUrls.get(photo.storage_path)
+        return url ? { id: photo.id, url, storagePath: photo.storage_path } : null
+      })
+      .filter((p: ChecklistPhotoView | null): p is ChecklistPhotoView => Boolean(p))
+    return {
+      id: item.id,
+      itemKey: item.item_key,
+      category: item.category || 'general',
+      label: item.item_text,
+      status: (item.status ?? 'unchecked') as ChecklistItemStatus,
+      notes: item.notes,
+      sortOrder: item.sort_order ?? templateSortOrder(item.item_key, item.item_text),
+      photos
+    }
+  })
 
   items.sort((a, b) => a.sortOrder - b.sortOrder || a.label.localeCompare(b.label))
 

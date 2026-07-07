@@ -5,6 +5,7 @@ import EmailChecklistButton from '@/components/EmailChecklistButton'
 import DeleteChecklistButton from '@/components/DeleteChecklistButton'
 import SetupNotice from '@/components/SetupNotice'
 import { getChecklistView } from '@/lib/checklistData'
+import { FileTextIcon, DownloadIcon } from '@/components/icons'
 import { categoryLabel, CATEGORY_ORDER, STATUS_LABELS } from '@/lib/checklistTemplate'
 import type { ChecklistCategory } from '@/lib/checklistTemplate'
 import type { ChecklistItemStatus } from '@/lib/types'
@@ -77,10 +78,27 @@ export default async function ChecklistDetailPage({ params }: { params: Promise<
           <div>
             <h1 className="text-2xl font-bold text-gray-900 md:text-3xl">{view.client?.name || view.property?.name || 'Checklist'}</h1>
             <p className="mt-1 text-sm text-gray-600">{view.property?.address || 'No address'} · {formatDate(visitDate)}</p>
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <span className="rounded-full border border-green-200 bg-green-50 px-3 py-1 text-sm text-green-700">{view.counts.done} OK</span>
+              {view.counts.issue > 0 && <span className="rounded-full border border-red-200 bg-red-50 px-3 py-1 text-sm text-red-700">{view.counts.issue} issue{view.counts.issue === 1 ? '' : 's'}</span>}
+              {view.counts.unchecked > 0 && <span className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-sm text-amber-700">{view.counts.unchecked} not checked</span>}
+            </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <span className="rounded-full border border-green-200 bg-green-50 px-3 py-1 text-sm text-green-700">{view.counts.done} done</span>
-            {view.counts.issue > 0 && <span className="rounded-full border border-red-200 bg-red-50 px-3 py-1 text-sm text-red-700">{view.counts.issue} issue{view.counts.issue === 1 ? '' : 's'}</span>}
+            <a
+              href={`/api/checklists/${view.id}/pdf`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 rounded-lg bg-primary-700 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-primary-800"
+            >
+              <FileTextIcon className="h-4 w-4" /> View PDF
+            </a>
+            <a
+              href={`/api/checklists/${view.id}/pdf?download=1`}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50"
+            >
+              <DownloadIcon className="h-4 w-4" /> Download
+            </a>
             <Link href={`/checklists/${view.id}/edit`} className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50">Edit</Link>
             <DeleteChecklistButton checklistId={view.id} />
           </div>

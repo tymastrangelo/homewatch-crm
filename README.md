@@ -15,9 +15,14 @@ same clients, properties, inspectors, and checklists.
 - **Dashboard** — totals, what's waiting to be emailed, open issues, and recent visits.
 - **Checklists** — searchable list of every inspection, filterable by status / issues / sent.
 - **New checklist** — pick (or add) a client, property, and inspector; mark each of the
-  ~32 standard inspection points Done / Issue / N/A / Skip; attach photos and notes;
+  ~32 standard inspection points OK / Issue / N/A / Skip; attach photos and notes;
   record interior temperatures; add summary comments.
-- **PDF report by email** — generates a branded PDF and emails it to the homeowner via SMTP.
+- **PDF report** — a themed, professional report (`src/lib/reportPdf.ts`): navy header band,
+  summary tiles, status pills, photo appendix, page footers. Preview/download it from any
+  checklist (`GET /api/checklists/[id]/pdf`) or email it to the homeowner via SMTP — both
+  routes share the same renderer. Example output lives in `docs/mock-reports/`.
+- **Mobile-native shell** — bottom tab bar with a raised "New checklist" action, bottom-sheet
+  modals, and PWA manifest + icons so staff can add it to their home screen.
 - **Clients & inspectors** — lightweight management of clients (with multiple property
   addresses) and the inspectors on staff.
 

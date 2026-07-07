@@ -6,8 +6,12 @@ import { PlusIcon, ClipboardListIcon } from '@/components/icons'
 
 export const revalidate = 0
 
-export default async function ChecklistsPage() {
-  const { summaries, status } = await getChecklistSummaries()
+export default async function ChecklistsPage({
+  searchParams
+}: {
+  searchParams: Promise<{ filter?: string }>
+}) {
+  const [{ summaries, status }, { filter }] = await Promise.all([getChecklistSummaries(), searchParams])
 
   return (
     <main className="mx-auto max-w-6xl space-y-6 p-4 md:p-6">
@@ -38,7 +42,7 @@ export default async function ChecklistsPage() {
           </Link>
         </div>
       ) : (
-        <ChecklistsBrowser summaries={summaries} />
+        <ChecklistsBrowser summaries={summaries} initialFilter={filter} />
       )}
     </main>
   )

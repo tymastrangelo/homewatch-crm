@@ -25,11 +25,19 @@ export async function middleware(req: NextRequest) {
     }
   })
 
-  // getUser() revalidates the token with Supabase — unlike getSession(), which
-  // trusts whatever is in the cookie. This is the secure choice for gating.
-  const {
-    data: { user }
-  } = await supabase.auth.getUser()
+  // getClaims() verifies the JWT locally (cached JWKS) instead of calling the
+  // Supabase Auth server on every request like getUser() — this ran on every
+  // navigation and added a network round trip per click. Expired sessions
+  // still refresh, and forged cookies only reach the shell: every data read
+  // goes through RLS. Falls back to getUser() on projects with legacy keys.
+  let user: unknown = null
+  try {
+    const { data } = await supabase.auth.getClaims()
+    user = data?.claims ?? null
+  } catch {
+    const { data } = await supabase.auth.getUser()
+    user = data.user
+  }
 
   const { pathname } = req.nextUrl
   const isPublic = PUBLIC_PATHS.some(p => pathname === p || pathname.startsWith(`${p}/`))
@@ -57,5 +65,8 @@ export const config = {
   // under Edge the middleware throws "EvalError: Code generation from strings
   // disallowed" on every request, returning an unstyled 500 page.
   runtime: 'nodejs',
-  matcher: ['/((?!_next/static|_next/image|favicon.ico|api/auth).*)']
+  // The extension group keeps public assets (manifest, icons, logo) reachable
+  // without a session — the browser fetches the PWA manifest and home-screen
+  // icons outside any authenticated context.
+  matcher: ['/((?!_next/static|_next/image|favicon.ico|api/auth|.*\\.(?:png|ico|svg|webmanifest)$).*)']
 }
