@@ -18,14 +18,13 @@ export const metadata: Metadata = {
     title: "239 CRM",
     statusBarStyle: "default",
   },
-  // Next's appleWebApp block only emits the modern `mobile-web-app-capable`
-  // (Android/Chrome), which iOS ignores. Without the legacy
-  // `apple-mobile-web-app-capable`, iOS launches the home-screen app standalone
-  // (via the manifest) but bounces every in-app link into the Safari in-app
-  // browser. This tag is the signal iOS actually keys off — keep it.
-  other: {
-    "apple-mobile-web-app-capable": "yes",
-  },
+  // NB: deliberately NOT setting `apple-mobile-web-app-capable`. On iOS 16.4+
+  // the manifest's `display: standalone` drives standalone mode AND honors the
+  // manifest `scope`, keeping in-app navigation inside the app. The legacy
+  // `apple-mobile-web-app-capable` tag flips iOS into web-clip mode, which
+  // ignores `scope` and confines the app to the start_url path — so every
+  // sibling route (/checklists, /clients, …) opened in the Safari in-app
+  // browser. Leaving it off is what keeps navigation in-app.
 };
 
 // Tint the mobile browser chrome (iOS status bar / Safari toolbar) to match

@@ -2,7 +2,7 @@
   "name": "239 Home Services — Home Watch CRM",
   "short_name": "239 CRM",
   "description": "Property inspection checklists and reports for 239 Home Services.",
-  "start_url": "/dashboard",
+  "start_url": "/",
   "scope": "/",
   "display": "standalone",
   "background_color": "#f6f8fa",
