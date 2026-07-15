@@ -105,7 +105,7 @@ export async function POST(request: NextRequest, context: { params: Promise<{ id
     if (updateError) console.warn('Email sent but failed to record status', updateError)
 
     revalidatePath(`/checklists/${id}`)
-    revalidatePath('/dashboard')
+    revalidatePath('/')
     revalidatePath('/checklists')
 
     return NextResponse.json({ ok: true, sentTo: recipientEmail, sentAt })

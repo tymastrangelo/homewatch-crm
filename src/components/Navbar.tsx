@@ -19,7 +19,7 @@ export default function Navbar() {
   return (
     <header className="flex h-14 items-center justify-between border-b border-gray-200 bg-white px-4 md:px-6 lg:h-16">
       {/* Brand: shown on mobile where there is no sidebar. */}
-      <Link href="/dashboard" className="flex items-center gap-2.5 lg:hidden">
+      <Link href="/" className="flex items-center gap-2.5 lg:hidden">
         <Image src="/logo-mark.png" alt="" width={28} height={31} className="h-8 w-auto" priority />
         <span className="text-sm font-bold leading-tight text-gray-900">
           239 Home Services

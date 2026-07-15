@@ -649,7 +649,7 @@ export default function ChecklistForm({ defaultData }: { defaultData?: Checklist
 
       <div className="sticky bottom-0 flex items-center gap-3 border-t border-gray-200 bg-gray-50/95 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] backdrop-blur sm:justify-end">
         <Link
-          href={isEditing ? `/checklists/${defaultData?.checklistId}` : '/dashboard'}
+          href={isEditing ? `/checklists/${defaultData?.checklistId}` : '/'}
           className="inline-flex min-h-12 items-center justify-center rounded-xl border border-gray-300 bg-white px-5 text-sm font-semibold text-gray-700 hover:bg-gray-50 active:bg-gray-100"
         >
           Cancel

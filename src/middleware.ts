@@ -42,6 +42,15 @@ export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl
   const isPublic = PUBLIC_PATHS.some(p => pathname === p || pathname.startsWith(`${p}/`))
 
+  // The dashboard lives at "/" (not "/dashboard") so the iOS home-screen app
+  // installs at the bare domain and scopes to "/", keeping every route in-app.
+  // Send the old path — bookmarks, prior installs, stale links — to the root.
+  if (pathname === '/dashboard') {
+    const redirectUrl = req.nextUrl.clone()
+    redirectUrl.pathname = '/'
+    return NextResponse.redirect(redirectUrl)
+  }
+
   if (!user && !isPublic) {
     const redirectUrl = req.nextUrl.clone()
     redirectUrl.pathname = '/login'
@@ -49,9 +58,9 @@ export async function middleware(req: NextRequest) {
     return NextResponse.redirect(redirectUrl)
   }
 
-  if (user && (pathname === '/login' || pathname === '/')) {
+  if (user && pathname === '/login') {
     const redirectUrl = req.nextUrl.clone()
-    redirectUrl.pathname = '/dashboard'
+    redirectUrl.pathname = '/'
     return NextResponse.redirect(redirectUrl)
   }
 

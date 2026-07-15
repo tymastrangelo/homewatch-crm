@@ -34,7 +34,7 @@ function LoginContent() {
     // Hard navigation guarantees the freshly-set auth cookie is sent with the
     // next request, so the middleware sees the session and won't bounce back to
     // login. (A client-side router.replace can race the cookie write and freeze.)
-    const redirectTo = searchParams.get('redirectTo') || '/dashboard'
+    const redirectTo = searchParams.get('redirectTo') || '/'
     window.location.assign(redirectTo)
   }
 

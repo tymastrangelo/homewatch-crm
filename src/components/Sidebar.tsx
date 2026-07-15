@@ -16,7 +16,7 @@ import {
 type IconType = (props: { className?: string }) => React.ReactNode
 
 const links: Array<{ name: string; href: string; icon: IconType; match: (p: string) => boolean }> = [
-  { name: 'Dashboard', href: '/dashboard', icon: HomeIcon, match: p => p === '/dashboard' },
+  { name: 'Dashboard', href: '/', icon: HomeIcon, match: p => p === '/' },
   { name: 'New checklist', href: '/checklist', icon: ClipboardPlusIcon, match: p => p === '/checklist' },
   { name: 'Checklists', href: '/checklists', icon: ClipboardListIcon, match: p => p === '/checklists' || p.startsWith('/checklists/') },
   { name: 'Clients', href: '/clients', icon: UsersIcon, match: p => p.startsWith('/clients') },
@@ -35,7 +35,7 @@ export default function Sidebar() {
   return (
     <div className="flex h-full w-64 flex-col border-r border-gray-200 bg-white">
       <div className="flex h-16 items-center border-b border-gray-200 px-4">
-        <Link href="/dashboard" className="flex items-center gap-2.5">
+        <Link href="/" className="flex items-center gap-2.5">
           <Image src="/logo-mark.png" alt="" width={34} height={38} className="h-9 w-auto" priority />
           <span className="text-sm font-bold leading-tight text-gray-900">
             239 Home Services

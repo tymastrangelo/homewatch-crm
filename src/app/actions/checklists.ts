@@ -240,7 +240,7 @@ export async function saveChecklist(input: SaveChecklistInput): Promise<SaveChec
       if (error) throw error
     }
 
-    revalidatePath('/dashboard')
+    revalidatePath('/')
     revalidatePath('/checklists')
     revalidatePath(`/checklists/${checklistId}`)
 
@@ -287,7 +287,7 @@ export async function deleteChecklist(checklistId: string): Promise<SaveChecklis
       }
     }
 
-    revalidatePath('/dashboard')
+    revalidatePath('/')
     revalidatePath('/checklists')
     return { ok: true, checklistId }
   } catch (error) {

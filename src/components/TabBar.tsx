@@ -7,7 +7,7 @@ import { HomeIcon, ClipboardListIcon, UsersIcon, UserCheckIcon, PlusIcon } from 
 type IconType = (props: React.SVGProps<SVGSVGElement>) => React.ReactNode
 
 const tabs: Array<{ name: string; href: string; icon: IconType; match: (p: string) => boolean }> = [
-  { name: 'Home', href: '/dashboard', icon: HomeIcon, match: p => p === '/dashboard' },
+  { name: 'Home', href: '/', icon: HomeIcon, match: p => p === '/' },
   { name: 'Checklists', href: '/checklists', icon: ClipboardListIcon, match: p => p === '/checklists' || p.startsWith('/checklists/') },
   { name: 'Clients', href: '/clients', icon: UsersIcon, match: p => p.startsWith('/clients') },
   { name: 'Inspectors', href: '/inspectors', icon: UserCheckIcon, match: p => p.startsWith('/inspectors') }
