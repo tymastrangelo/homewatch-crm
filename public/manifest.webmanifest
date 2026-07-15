@@ -3,6 +3,7 @@
   "short_name": "239 CRM",
   "description": "Property inspection checklists and reports for 239 Home Services.",
   "start_url": "/dashboard",
+  "scope": "/",
   "display": "standalone",
   "background_color": "#f6f8fa",
   "theme_color": "#ffffff",
