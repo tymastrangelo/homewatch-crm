@@ -32,7 +32,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         {/* Bottom padding on mobile keeps content clear of the tab bar. */}
         <div
           className={`flex-1 overflow-y-auto overflow-x-hidden lg:pb-0 ${
-            hideTabBar ? '' : 'pb-[calc(4.5rem+env(safe-area-inset-bottom))]'
+            hideTabBar ? '' : 'pb-[calc(4rem+env(safe-area-inset-bottom))]'
           }`}
         >
           {children}

@@ -26,7 +26,7 @@ export default function TabBar() {
       className="fixed inset-x-0 bottom-0 z-40 border-t border-gray-200 bg-white/95 pb-[env(safe-area-inset-bottom)] backdrop-blur lg:hidden"
       aria-label="Primary"
     >
-      <div className="mx-auto grid h-16 max-w-md grid-cols-5 items-stretch">
+      <div className="mx-auto grid h-14 max-w-md grid-cols-5 items-stretch">
         {tabs.slice(0, 2).map(tab => (
           <Tab key={tab.name} tab={tab} active={tab.match(pathname)} />
         ))}
@@ -41,7 +41,6 @@ export default function TabBar() {
           >
             <PlusIcon className="h-7 w-7" strokeWidth={2.2} />
           </Link>
-          <span className="absolute inset-x-0 bottom-1.5 text-center text-[10px] font-medium text-gray-500">New</span>
         </div>
 
         {tabs.slice(2).map(tab => (
